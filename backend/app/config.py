@@ -12,7 +12,8 @@ MODELS_DIR = BASE_DIR.parent / "models"
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore",
+                                  populate_by_name=True)
 
     app_name: str = "Sentinel Nexus"
     database_url: str = f"sqlite:///{DATA_DIR / 'sentinel.db'}"
