@@ -1,0 +1,27 @@
+# Sentinel Nexus backend.
+#
+# Deliberately absent:
+#   PyTorch  -- detection runs on OpenCV DNN (ONNX). Torch also clashes with
+#               PaddlePaddle over DLLs on Windows when both load in one process.
+#   Anaconda -- use a clean venv; a --system-site-packages venv mixes numpy-1.x
+#               compiled wheels with numpy 2.x and breaks pandas at import.
+#
+# PaddleOCR pulls imgaug + albumentations transitively and imports both
+# unconditionally, so neither can be removed. scikit-learn CAN be removed.
+
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+sqlalchemy==2.0.36
+pydantic==2.10.4
+pydantic-settings==2.7.0
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-multipart==0.0.20
+httpx==0.28.1
+reportlab==4.2.5
+
+numpy==1.26.4
+opencv-contrib-python==4.11.0.86
+paddlepaddle==3.0.0
+paddleocr==2.9.1
+

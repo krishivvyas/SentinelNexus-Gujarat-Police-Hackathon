@@ -1,0 +1,170 @@
+{
+  "CAM-01": {
+    "ts": "2026-06-13T23:24:03",
+    "ts_text": "13-06-2026 23:24:03",
+    "site": "Chiman bhai Bridge CSITMS-32_PTZ2",
+    "conf": 0.948
+  },
+  "CAM-02": {
+    "ts": "2026-06-13T23:21:08",
+    "ts_text": "13-06-2026 23:21:08",
+    "site": "Janpath T CSITMS-1O PTZ2",
+    "conf": 0.929
+  },
+  "CAM-03": {
+    "ts": "2026-06-13T23:22:48",
+    "ts_text": "13-06-2026 23:22:48",
+    "site": "O.N.G.C.Office BS-103B1",
+    "conf": 0.946
+  },
+  "CAM-04": {
+    "ts": "2026-06-13T23:24:10",
+    "ts_text": "13-06-2026 23:24:10",
+    "site": "",
+    "conf": 0.961
+  },
+  "CAM-05": {
+    "ts": "2026-06-13T23:21:17",
+    "ts_text": "13-06-2026 23:21:17",
+    "site": "Visat teen Rasta CSITMS-31IPTZ1",
+    "conf": 0.957
+  },
+  "CAM-06": {
+    "ts": null,
+    "ts_text": "",
+    "site": "",
+    "conf": 0.0
+  },
+  "CAM-07": {
+    "ts": null,
+    "ts_text": "",
+    "site": "SHOWROOM FIX",
+    "conf": 0.0
+  },
+  "CAM-09": {
+    "ts": "2026-06-13T23:37:20",
+    "ts_text": "13/06/2026 23:37:20",
+    "site": "New By PassNr",
+    "conf": 0.993
+  },
+  "CAM-11": {
+    "ts": null,
+    "ts_text": "",
+    "site": "Dolatpara GatePTZ-1",
+    "conf": 0.0
+  },
+  "CAM-12": {
+    "ts": "2026-06-13T23:22:48",
+    "ts_text": "13/06/202623:22:48",
+    "site": "",
+    "conf": 0.963
+  },
+  "CAM-13": {
+    "ts": "2026-06-13T23:21:46",
+    "ts_text": "13-06-202623:21:46",
+    "site": "CN-VIDHYALAYA P2",
+    "conf": 0.976
+  },
+  "CAM-14": {
+    "ts": "2026-06-13T23:23:57",
+    "ts_text": "13-06-2026 23:23:57",
+    "site": "DELIGHT P1 RLVD",
+    "conf": 0.965
+  },
+  "CAM-15": {
+    "ts": null,
+    "ts_text": "",
+    "site": "Suvidlnapar P3 RILV",
+    "conf": 0.0
+  },
+  "CAM-16": {
+    "ts": null,
+    "ts_text": "",
+    "site": "IJunction P2RLVD",
+    "conf": 0.0
+  },
+  "CAM-17": {
+    "ts": null,
+    "ts_text": "",
+    "site": "4th FloorFront Side",
+    "conf": 0.0
+  },
+  "CAM-18": {
+    "ts": null,
+    "ts_text": "",
+    "site": "",
+    "conf": 0.0
+  },
+  "CAM-19": {
+    "ts": null,
+    "ts_text": "",
+    "site": "",
+    "conf": 0.0
+  },
+  "CAM-20": {
+    "ts": "2026-08-03T22:28:37",
+    "ts_text": "2026-08-0322:28:37",
+    "site": "AI IPC",
+    "conf": 0.963
+  },
+  "CAM-21": {
+    "ts": "2026-06-14T04:04:25",
+    "ts_text": "14-06-202604:04:25",
+    "site": "Dethali Char Rasta FIX1",
+    "conf": 0.969
+  },
+  "CAM-22": {
+    "ts": null,
+    "ts_text": "",
+    "site": "",
+    "conf": 0.0
+  },
+  "CAM-23": {
+    "ts": null,
+    "ts_text": "",
+    "site": "Camera 01",
+    "conf": 0.0
+  },
+  "CAM-24": {
+    "ts": null,
+    "ts_text": "",
+    "site": "Camera 01",
+    "conf": 0.0
+  },
+  "CAM-25": {
+    "ts": null,
+    "ts_text": "",
+    "site": "",
+    "conf": 0.0
+  },
+  "CAM-26": {
+    "ts": "2026-08-08T23:48:18",
+    "ts_text": "08/08/2026 23:48:18",
+    "site": "CP IP Cam",
+    "conf": 0.968
+  },
+  "CAM-27": {
+    "ts": "2026-06-14T02:46:23",
+    "ts_text": "14-06-202602:46:23",
+    "site": "",
+    "conf": 0.922
+  },
+  "CAM-28": {
+    "ts": "2026-06-13T11:47:06",
+    "ts_text": "13-06-202611:47:06",
+    "site": "",
+    "conf": 0.95
+  },
+  "CAM-29": {
+    "ts": "2026-06-13T11:47:16",
+    "ts_text": "13-06-202611:47:16",
+    "site": "",
+    "conf": 0.972
+  },
+  "CAM-30": {
+    "ts": "2026-08-08T23:28:18",
+    "ts_text": "08-08-2026 23:28:18",
+    "site": "GDM-Rambaugh PTZ2",
+    "conf": 0.955
+  }
+}

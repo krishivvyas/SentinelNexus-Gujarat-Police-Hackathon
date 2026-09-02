@@ -1,0 +1,80 @@
+{
+  "Chiman bhai Bridge": {
+    "lat": null,
+    "lon": null,
+    "display": "",
+    "note": "no in-bbox match; set manually"
+  },
+  "Janpath T": {
+    "lat": null,
+    "lon": null,
+    "display": "",
+    "note": "no in-bbox match; set manually"
+  },
+  "O.N.G.C.Office": {
+    "lat": null,
+    "lon": null,
+    "display": "",
+    "note": "no in-bbox match; set manually"
+  },
+  "Visat teen Rasta": {
+    "lat": 23.1192572,
+    "lon": 72.5656704,
+    "display": "Jay Visat Eminence, Tragad gam road, Godrej Garden City, Tragad, Ghatlodiya Taluka, Ahmedabad, Gujarat, 382424, India",
+    "matched_query": "Visat, Ahmedabad, Gujarat, India"
+  },
+  "New By PassNr": {
+    "lat": 23.092529,
+    "lon": 72.561323,
+    "display": "New Ranip, SabarmatiTaluka, Ahmedabad, Gujarat, 382481, India",
+    "matched_query": "New, Ahmedabad, Gujarat, India"
+  },
+  "Dolatpara Gate": {
+    "lat": null,
+    "lon": null,
+    "display": "",
+    "note": "no in-bbox match; set manually"
+  },
+  "CN-VIDHYALAYA": {
+    "lat": null,
+    "lon": null,
+    "display": "",
+    "note": "no in-bbox match; set manually"
+  },
+  "DELIGHT": {
+    "lat": null,
+    "lon": null,
+    "display": "",
+    "note": "no in-bbox match; set manually"
+  },
+  "Suvidlnapar": {
+    "lat": null,
+    "lon": null,
+    "display": "",
+    "note": "no in-bbox match; set manually"
+  },
+  "IJunction": {
+    "lat": 23.160401,
+    "lon": 72.5425111,
+    "display": "Shantigram, Near Vaishno Devi Circle, Ahmedabad, Daskroi Taluka, Ahmedabad, Gujarat, 382421, India",
+    "matched_query": "I Circle, Ahmedabad, Gujarat, India"
+  },
+  "FloorFront Side": {
+    "lat": null,
+    "lon": null,
+    "display": "",
+    "note": "no in-bbox match; set manually"
+  },
+  "Dethali Char Rasta": {
+    "lat": null,
+    "lon": null,
+    "display": "",
+    "note": "no in-bbox match; set manually"
+  },
+  "GDM-Rambaugh": {
+    "lat": null,
+    "lon": null,
+    "display": "",
+    "note": "no in-bbox match; set manually"
+  }
+}
