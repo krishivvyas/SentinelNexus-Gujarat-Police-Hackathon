@@ -30,6 +30,7 @@ cd testing
 | `test_lightweight.py` | Cost under a constrained CPU budget |
 | `live_grid_check.py` | The pre-submission checklist, against the real grid |
 | `helpers.py` | Comment/docstring-aware source scanning |
+| `TEST_REPORT.md` | Full written report of every result |
 
 Some checks are **static** rather than behavioural. For a rule like "no timing
 logic may depend on `CAP_PROP_FPS`", proving the call site does not exist is
@@ -61,7 +62,7 @@ anti-patterns it warns against.
 | Reconnect with backoff implemented and tested | Pass | 2 s → 30 s cap, interruptible; unreachable feed produced 0 frames and no spin |
 | Decoder warnings logged, not fatal | Pass | Logged once then suppressed; stream survived join |
 | Camera list from `cameras.json`; mixed codecs and resolutions | Pass | 30 cameras; H.264 + H.265; five resolutions, 960×576 → 2560×1440 |
-| Sane across a scene discontinuity | Pass (unit) | Unit-tested exhaustively; not observed in a 150 s live window |
+| Sane across a scene discontinuity | **Skipped** (live) | Unit-tested exhaustively; no loop point occurred in the 150 s live window |
 
 The last row is the honest one: no loop point occurred during the live run, so
 that behaviour is proven by unit tests rather than observed in the field. The
@@ -74,18 +75,22 @@ result from it would be dishonest, so `test_lightweight.py` instead *constrains*
 the process to 2 OpenCV threads with the `low` profile and measures the cost.
 That is a simulation of a small machine, not a substitute for one.
 
-Measured under that constraint:
+Measured under that constraint (n=20, `results/lightweight_benchmark.json`):
 
 | Measure | Result |
 |---|---|
-| Detection, 1920×1080 | **213 ms median** (min 140, max 235) |
-| Sustained rate | **4.8 detections/s** against 2.0/s required — 2.4× headroom |
-| Resident memory | **318 MB** with the detector loaded |
-| 2560×1440 vs 1280×720 | **0.8×** the time for 4× the pixels |
+| Detection, 1920×1080 | **233 ms median** · min 140 · p90 317 |
+| Sustained rate | **4.29 detections/s** against 2.0/s required — **2.15× headroom** |
+| Resident memory | **317 MB** with the detector loaded |
+| 2560×1440 vs 1280×720 | **1.15×** the time for **4×** the pixels |
 
 That last row is the important one. Cost is bounded by the profile's inference
-width, not by whatever resolution a department installed, so a 1440p camera is no
-more expensive than a 720p one.
+width, not by whatever resolution a department installed, so a 1440p camera costs
+barely more than a 720p one.
+
+> Single runs of this benchmark scatter widely on a busy host — one showed 0.8×,
+> i.e. the larger frame appearing cheaper, which is not physically meaningful.
+> The figures above are medians over 20 iterations. Prefer them to any single run.
 
 Also verified: no `torch`, `tensorflow` or `ultralytics` in the environment;
 detection explicitly targets CPU; the OCR engine is constructed lazily so a
@@ -99,4 +104,7 @@ measurement.
 
 ## Results
 
-`results/live_grid_check.json` holds the most recent live run.
+- **[`TEST_REPORT.md`](TEST_REPORT.md)** — the full report: results, evidence,
+  defects found, and what remains unverified
+- `results/live_grid_check.json` — most recent live grid run
+- `results/lightweight_benchmark.json` — most recent constrained benchmark
