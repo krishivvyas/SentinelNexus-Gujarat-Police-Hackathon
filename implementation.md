@@ -368,8 +368,60 @@ Cut first if time runs out: ONVIF/VMS stubs, PDF styling, PTZ control, multi-cam
 - [x] `tests/test_worker_timing.py` — 7 tests, all passing
 - [x] `scripts/verify_pipeline.py` — live verification harness
 - [x] Footprint reduced: data directory 15 MB -> 2 MB
-- [ ] ONNX vehicle detector — next
-- [ ] Sightings persisted from the primary cluster — next
+- [x] Vehicle detector on OpenCV DNN
+- [x] Sightings persisted from the primary cluster
+
+**Days 3–6 — 2026-09-02 — AI, intelligence, API, UI, security, reports**
+
+- [x] `pipeline/detect.py` — vehicle detection on OpenCV DNN (~160 ms per 1080p frame,
+      CPU), vehicle type and colour estimation
+- [x] `pipeline/plate.py` — morphological plate localisation and image restoration
+- [x] `pipeline/ocr.py` — plate OCR, position-aware normalisation, multi-frame voting,
+      configurable plate region
+- [x] `pipeline/track.py` — IoU tracker; one sighting per vehicle, not per frame
+- [x] `services/ingest.py` — per-camera orchestration; **4,540 sightings** ingested live
+- [x] `services/watchlist.py`, `alerts.py` — matching, dedup, WebSocket broadcast, audit
+- [x] `services/search.py` — cross-camera plate and attribute correlation
+- [x] `services/security.py` — JWT, RBAC, audit trail (403/401 enforcement verified)
+- [x] `services/reports.py` — CSV detection log and PDF evidence report
+- [x] `api/routes.py` + `main.py` — 25 endpoints, alert WebSocket
+- [x] `static/index.html` — command centre: overview, GIS, investigation, alerts,
+      cameras, reports
+- [x] Test 1 own-feed demonstration: full chain fires end to end
+- [x] `docs/HLD.md`; output report `docs/submission/`
+- [x] 33 tests passing
+
+### The plate false-positive incident — worth recording
+
+The first live ANPR run reported 23 "plates". Every one was junk: the camera's own
+burned-in timestamp (`14-06-2026` → `IA062026`), street signage (`PALDI JUNCTION` →
+`PALOLJUNCTIC`), and noise. The pipeline was accepting any text that vaguely fit a plate
+shape.
+
+Three fixes, all now regression-tested (`tests/test_plate_validation.py`, built from the
+exact junk strings that leaked):
+
+1. A read must match the registration layout **and** carry a real state code **and** a
+   valid RTO number. Otherwise the plate is reported as unreadable.
+2. Vehicle boxes overlapping the overlay bands are excluded from ANPR entirely.
+3. Confidence floor raised, and OCR throttled per frame and per track.
+
+After the fix: **4,540 sightings, 0 plates** on the government feed. That is the honest
+answer — at 20–40 px these plates are not readable — and it is why attribute correlation
+carries that feed.
+
+### Measured plate-recovery limit
+
+| Plate width | Result |
+|---|---|
+| 160 px / 90 px | read, confidence 0.99 |
+| 60 px | read, confidence 0.92 |
+| 40 px | garbled, rejected as invalid |
+| 28 px | nothing recovered |
+
+The chain reads plates down to about **60 px**. Government night PTZ frames present
+20–40 px. The limit is camera placement, not the pipeline — and this measurement is the
+evidence for that claim.
 
 ---
 

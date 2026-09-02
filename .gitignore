@@ -1,12 +1,38 @@
-__pycache__/
-*.pyc
+# Virtual environments
 .venv/
+.venv-clean/
 venv/
-node_modules/
-*.db
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Secrets and local config
+.env
+.env.local
+
+# Detector weights - downloaded, see README
+models/*.weights
+models/*.onnx
+models/*.caffemodel
+
+# Generated data
+backend/data/*.db
+backend/data/*.db-wal
+backend/data/*.db-shm
 backend/data/evidence/*
 !backend/data/evidence/.gitkeep
-.env
-models/*.onnx
-scratch/
-.pytest_cache/
+backend/data/thumbnails/
+backend/data/ocr_samples/
+backend/data/own_feed/
+
+# Node (unused - the UI has no build step)
+node_modules/
+
+# OS
+.DS_Store
+Thumbs.db

@@ -22,14 +22,28 @@ This is an active build against a 2026-09-07 deadline. What is real today:
 | Camera registry + catalogue (`cameras.json`) | **Working** — 30 cameras, 24 online |
 | Connector/federation layer (RTSP, HLS, catalogue) | **Working** |
 | Live stream worker (PTS, backoff, loop handling) | **Working**, verified against the live grid |
-| Burned-in overlay OCR (timestamp + site name) | **Working** — 16/28 timestamps, 20/28 site names |
+| Burned-in overlay OCR (timestamp + site name) | **Working** — authoritative event clock |
 | Camera triage + time-cluster analysis | **Working** |
-| Vehicle detection (OpenCV DNN + ONNX) | In progress |
-| ANPR (plate detect → OCR → normalise) | Planned |
-| Cross-camera tracking / watchlist / alerts | Planned |
-| REST API + React command centre | Planned |
+| Vehicle detection + attributes (OpenCV DNN) | **Working** — ~4,500 sightings ingested |
+| ANPR (localise → restore → OCR → normalise → vote) | **Working** — reads plates ≥60 px |
+| Cross-camera tracking and investigation | **Working** — plate and attribute search |
+| Watchlist + real-time alerts (WebSocket) | **Working** |
+| GIS map, CSV/PDF reports | **Working** |
+| JWT auth + RBAC + audit trail | **Working** |
+| REST API + command-centre UI | **Working** — 25 endpoints, no build step |
 
 Full plan, measurements and daily schedule: [`implementation.md`](implementation.md).
+Architecture and design rationale: [`docs/HLD.md`](docs/HLD.md).
+
+### Run it
+
+```bash
+cd backend
+../.venv-clean/Scripts/python.exe -m uvicorn app.main:app --port 8000
+```
+
+Open <http://localhost:8000>. Demo accounts: `admin` / `operator` / `analyst`,
+password `sentinel-<role>`.
 
 ---
 
@@ -103,7 +117,7 @@ demonstration. Detections are never fabricated — if a plate cannot be read, we
                                     v
                         FASTAPI + WEBSOCKET
                                     v
-                     REACT COMMAND CENTRE (Leaflet GIS)
+                  COMMAND CENTRE UI (Leaflet GIS)
 ```
 
 Every connector converts its source into the same `CameraDescriptor`, so nothing above
@@ -139,6 +153,14 @@ python -m venv .venv-clean
 # ./.venv-clean/bin/python -m pip install -r backend/requirements.txt
 ```
 
+Download the detector weights (~24 MB, open source; loaded by OpenCV's DNN module —
+there is no PyTorch or ultralytics dependency):
+
+```bash
+curl -L -o models/yolov4-tiny.weights   https://github.com/AlexeyAB/darknet/releases/download/yolov4/yolov4-tiny.weights
+curl -L -o models/yolov4-tiny.cfg   https://raw.githubusercontent.com/AlexeyAB/darknet/master/cfg/yolov4-tiny.cfg
+```
+
 ### Build the camera registry
 
 ```bash
@@ -162,11 +184,27 @@ python -m scripts.verify_pipeline --camera CAM-04 --seconds 180
 Checks backoff on an unreachable feed, PTS-driven sampling, gap tolerance, and
 throughput against real time.
 
+### Run live ingest
+
+```bash
+python -m scripts.run_ingest --ai --seconds 600      # triage-selected cameras
+python -m scripts.run_ingest --cameras CAM-04 CAM-01 --seconds 300
+```
+
+### Test 1 — own-feed demonstration
+
+Proves the full chain (detection → ANPR → watchlist → real-time alert) on close-range
+footage where plates are legible:
+
+```bash
+python -m scripts.demo_own_feed
+```
+
 ### Run the tests
 
 ```bash
 python -m pip install -r requirements-dev.txt
-python -m pytest tests/ -q
+python -m pytest tests/ -q          # 33 tests
 ```
 
 ---
@@ -248,8 +286,9 @@ drawn on the map at all. A confidently-wrong pin on a police map is worse than n
 sentinal/
 ├── backend/
 │   ├── app/
-│   │   ├── api/                       # REST routers                    (planned)
-│   │   │   └── __init__.py
+│   │   ├── api/
+│   │   │   ├── __init__.py
+│   │   │   └── routes.py              # 25 REST endpoints + alert WebSocket
 │   │   ├── connectors/                # federation layer — one adapter per protocol
 │   │   │   ├── __init__.py
 │   │   │   ├── base.py                # BaseConnector ABC + CameraDescriptor contract
@@ -261,16 +300,29 @@ sentinal/
 │   │   │                              #   users, audit_log, camera_metadata_history
 │   │   ├── pipeline/
 │   │   │   ├── __init__.py
+│   │   │   ├── detect.py              # vehicle detection on OpenCV DNN + colour
+│   │   │   ├── ocr.py                 # plate OCR, normalisation, multi-frame voting
 │   │   │   ├── overlay.py             # burned-in timestamp + site-name OCR
+│   │   │   ├── plate.py               # plate localisation and image restoration
+│   │   │   ├── track.py               # IoU tracker (enables plate voting)
 │   │   │   └── worker.py              # PTS-driven stream worker, backoff, loop detection
 │   │   ├── schemas/                   # Pydantic request/response models  (planned)
 │   │   │   └── __init__.py
 │   │   ├── services/
 │   │   │   ├── __init__.py
-│   │   │   └── registry.py            # camera registry + metadata audit trail
+│   │   │   ├── alerts.py              # alert engine + WebSocket broadcast
+│   │   │   ├── ingest.py              # per-camera orchestration
+│   │   │   ├── registry.py            # camera registry + metadata audit trail
+│   │   │   ├── reports.py             # CSV detection log, PDF evidence report
+│   │   │   ├── search.py              # cross-camera plate + attribute correlation
+│   │   │   ├── security.py            # JWT, RBAC, audit
+│   │   │   └── watchlist.py           # normalised storage + tolerant matching
 │   │   ├── __init__.py
 │   │   ├── config.py                  # env-driven settings + hardware profiles
-│   │   └── db.py                      # SQLAlchemy engine (SQLite → Postgres swap)
+│   │   ├── db.py                      # SQLAlchemy engine (SQLite → Postgres swap)
+│   │   └── main.py                    # FastAPI app; serves the API and the UI
+│   ├── static/
+│   │   └── index.html                 # command-centre UI — no build step, no node_modules
 │   ├── data/                          # generated — not all of it is committed
 │   │   ├── evidence/                  # detection snapshots               (empty)
 │   │   ├── ocr_samples/               # full-res OCR/ANPR test corpus     (3 files)
@@ -281,25 +333,27 @@ sentinal/
 │   │   ├── overlay_reads.json         # OCR'd overlay clocks + site names
 │   │   └── sentinel.db                # SQLite registry + events
 │   ├── scripts/
+│   │   ├── demo_own_feed.py           # Test 1: detection → ANPR → watchlist → alert
+│   │   ├── run_ingest.py              # live ingest against the grid
 │   │   ├── seed_registry.py           # catalogue build + geocode + time-cluster + seed
 │   │   ├── survey_cameras.py          # fleet probe + plate-readability triage
 │   │   └── verify_pipeline.py         # live verification harness against the grid
 │   ├── tests/
+│   │   ├── test_plate_validation.py   # guards against reporting signage as plates
 │   │   └── test_worker_timing.py      # loop-point vs inter-frame-gap discrimination
 │   ├── requirements.txt
 │   └── requirements-dev.txt
 ├── docs/
-│   └── submission/                    # PPT, HLD, output report           (planned)
-├── frontend/                          # React + Vite command centre       (planned)
-├── models/                            # ONNX detector weights             (not committed)
+│   ├── HLD.md                         # high-level design
+│   └── submission/                    # output report + evidence PDF
+├── models/                            # detector weights                  (not committed)
 ├── .gitignore
 ├── implementation.md                  # full plan, measurements, daily schedule
 └── README.md
 ```
 
-`frontend/`, `models/`, `docs/submission/` and `backend/app/api/` are placeholders for
-work still to come. `models/*.onnx`, `*.db`, `evidence/` and the virtualenv are
-gitignored — clone and run the two seed scripts to regenerate the data directory.
+Detector weights, `*.db`, `evidence/` and the virtualenv are gitignored — clone, download
+the weights (see Install), then run the two seed scripts to regenerate the data directory.
 
 ---
 

@@ -29,6 +29,10 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 720
 
+    # Plate layout to validate against: "IN" (Indian registrations, used by the
+    # Sentinel grid) or "GENERIC" (any letters+digits, for non-Indian footage).
+    plate_region: str = Field(default="IN", validation_alias="SENTINEL_PLATE_REGION")
+
     # Hardware profile. "low" targets an old laptop with no GPU; "balanced" is the
     # default; "high" only makes sense with plenty of cores. Set SENTINEL_PROFILE.
     profile: str = Field(default="balanced", validation_alias="SENTINEL_PROFILE")
