@@ -1,0 +1,80 @@
+[
+  {
+    "name": "RTSP forced over TCP",
+    "rule": "DO: force RTSP over TCP; UDP corrupts frames across NAT",
+    "passed": true,
+    "detail": "OPENCV_FFMPEG_CAPTURE_OPTIONS=rtsp_transport;tcp|stimeout;10000000|probesize;500000|analyzeduration;"
+  },
+  {
+    "name": "Camera list read from cameras.json",
+    "rule": "Checklist: camera list read from cameras.json",
+    "passed": true,
+    "detail": "30 cameras"
+  },
+  {
+    "name": "Mixed codecs handled",
+    "rule": "Checklist: mixed H.264/H.265",
+    "passed": true,
+    "detail": "codecs: H.264, H.265"
+  },
+  {
+    "name": "Mixed resolutions handled",
+    "rule": "Checklist: mixed resolutions",
+    "passed": true,
+    "detail": "resolutions: 960x576, 1280x720, 1280x960, 1920x1080, 2560x1440"
+  },
+  {
+    "name": "Misreported frame rates recorded, not trusted",
+    "rule": "DON'T: trust the reported frame rate",
+    "passed": true,
+    "detail": "reported rates: [10.0, 12.0, 20.0, 25.0, 30.0, 200.0, 90000.0] -- [200.0, 90000.0] are impossible and are stored as metadata only"
+  },
+  {
+    "name": "HLS fallback available for remote clients",
+    "rule": "Checklist: remote clients use HLS",
+    "passed": true,
+    "detail": "30 cameras carry an HLS URL"
+  },
+  {
+    "name": "Cameras answer RTSP DESCRIBE",
+    "rule": "Grid is live and consumed directly",
+    "passed": true,
+    "detail": "8/8 reachable in 3s; codecs ['H.264', 'H.265']"
+  },
+  {
+    "name": "Unreachable feed backs off without spinning",
+    "rule": "DO: exponential backoff, never a tight loop",
+    "passed": true,
+    "detail": "ran 30s, delivered 0 frames, no busy loop"
+  },
+  {
+    "name": "PTS advances on its own clock",
+    "rule": "DO: drive timing from PTS, not arrival time",
+    "passed": true,
+    "detail": "72 frames, PTS span 133s over 151s wall (0.88x real time)"
+  },
+  {
+    "name": "Inter-frame gaps tolerated without a reconnect",
+    "rule": "DON'T: assume a constant frame rate",
+    "passed": true,
+    "detail": "largest PTS gap 16200ms; 0 reconnect(s)"
+  },
+  {
+    "name": "Decoder warnings were not fatal",
+    "rule": "DON'T: treat join-time decode warnings as fatal",
+    "passed": true,
+    "detail": "stream survived join; libavcodec noise suppressed to the log"
+  },
+  {
+    "name": "Scene discontinuity handling",
+    "rule": "DO: expect a scene discontinuity at the loop point",
+    "passed": null,
+    "detail": "0 observed in this window (none hit; logic is unit-tested in test_field_rules.py)"
+  },
+  {
+    "name": "Capture released on shutdown",
+    "rule": "DO: close captures you finish with",
+    "passed": true,
+    "detail": "worker exited its context and released the stream slot"
+  }
+]

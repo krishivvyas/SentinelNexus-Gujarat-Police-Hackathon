@@ -203,9 +203,15 @@ python -m scripts.demo_own_feed
 ### Run the tests
 
 ```bash
-python -m pip install -r requirements-dev.txt
-python -m pytest tests/ -q          # 33 tests
+cd ../testing
+../.venv-clean/Scripts/python.exe -m pytest        # 108 tests, offline
+../.venv-clean/Scripts/python.exe -m pytest -s -m slow   # with measured numbers
+../.venv-clean/Scripts/python.exe live_grid_check.py     # against the live grid
 ```
+
+Every DO/DON'T rule and pre-submission checklist item is an executable test.
+See [`testing/README.md`](testing/README.md) for the rule-to-test mapping,
+the live-grid checklist results, and the low-end machine measurements.
 
 ---
 
@@ -338,11 +344,19 @@ sentinal/
 │   │   ├── seed_registry.py           # catalogue build + geocode + time-cluster + seed
 │   │   ├── survey_cameras.py          # fleet probe + plate-readability triage
 │   │   └── verify_pipeline.py         # live verification harness against the grid
-│   ├── tests/
-│   │   ├── test_plate_validation.py   # guards against reporting signage as plates
-│   │   └── test_worker_timing.py      # loop-point vs inter-frame-gap discrimination
 │   ├── requirements.txt
 │   └── requirements-dev.txt
+├── testing/                           # all tests live here
+│   ├── README.md                      # rule-to-test map + measured results
+│   ├── conftest.py                    # puts backend/ on the import path
+│   ├── helpers.py                     # comment-aware source scanning
+│   ├── live_grid_check.py             # pre-submission checklist vs the live grid
+│   ├── test_api_security.py           # API shape, auth, RBAC, path traversal
+│   ├── test_catalogue.py              # cameras.json contract, mixed codecs
+│   ├── test_field_rules.py            # every DO / DON'T
+│   ├── test_lightweight.py            # cost under a constrained CPU budget
+│   ├── test_plate_validation.py       # signage must never be reported as a plate
+│   └── test_worker_timing.py          # loop point vs inter-frame gap
 ├── docs/
 │   ├── HLD.md                         # high-level design
 │   └── submission/                    # output report + evidence PDF
