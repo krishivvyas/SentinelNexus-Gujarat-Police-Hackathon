@@ -125,22 +125,32 @@ the connector layer knows which protocol a camera speaks.
 
 ---
 
-## Quick start
+## What we learned from the feed
+
+These findings shaped the architecture and are worth reading before changing anything.
+
+- **RTSP works unauthenticated; HLS does not.** `rtsp://103.250.160.189:8554/stream/camNN` is directly reachable. The HLS endpoint and `/api/ingest` both redirect to `/auth/login`. RTSP is the primary transport; HLS is the fallback for networks where 8554 is blocked.
+- **Reported frame rate is unusable.** CAM-06 reports 90,000 fps and CAM-30 reports 200. Nothing in this codebase derives timing from `CAP_PROP_FPS` or from frame arrival time — all timing comes from the decoder PTS and the burned-in overlay clock.
+- **Every frame carries a wall-clock overlay and a site name.** These are replayed recordings, so content time has nothing to do with decode time. The overlay clock is the authoritative event timestamp, and the site labels are genuine Ahmedabad locations (Chimanbhai Bridge, Janpath, ONGC Office, Visat Teen Rasta, CN Vidyalaya, Rambaugh).
+- **The cameras are not one synchronised network.** Overlay clocks span at least five recording dates. A vehicle can only be traced across cameras whose recordings overlap in time, so cameras are grouped into *time clusters*. The primary cluster — **CAM-01, 02, 03, 04, 05, 09, 12, 13, 14** — shares a window and is the real cross-camera tracking network.
+- **Plate readability is the defining risk.** These are wide-angle night overview PTZ cameras, not dedicated ANPR cameras; plates run 20–40 px with motion blur and headlight bloom. The mitigation is camera triage, plate-recovery preprocessing with multi-frame voting, attribute-based sightings that work without a readable plate, and a two-track demonstration. Detections are never fabricated — if a plate cannot be read, we say so.
+
+---
+
+## Manual Installation & Step-by-Step Setup
 
 ### Prerequisites
 
-- **Python 3.12**
+- **Python 3.12 or 3.13**
 - Network access to the Sentinel grid (RTSP port 8554, or HLS with credentials)
 - No GPU required. No Docker, no PostgreSQL, no separate FFmpeg binary — OpenCV ships
   its own FFmpeg.
 
 > **Use a clean virtualenv.** Do **not** use `--system-site-packages`, and do not run
-> this inside Anaconda's environment: Anaconda's numpy-1.x-compiled packages break
-> against the numpy this project needs. PyTorch is deliberately not a dependency —
-> detection runs on OpenCV DNN, and PyTorch also clashes with PaddlePaddle over DLLs on
-> Windows when both load in one process.
+> this inside Anaconda's environment. PyTorch is deliberately not a dependency —
+> detection runs on OpenCV DNN.
 
-### Install
+### Manual Install
 
 ```bash
 git clone https://github.com/krishivvyas/sentinal.git
@@ -148,17 +158,16 @@ cd sentinal
 
 python -m venv .venv-clean
 # Windows
-./.venv-clean/Scripts/python.exe -m pip install -r backend/requirements.txt
+.\.venv-clean\Scripts\pip.exe install -r backend/requirements.txt
 # Linux / macOS
-# ./.venv-clean/bin/python -m pip install -r backend/requirements.txt
+# ./.venv-clean/bin/pip install -r backend/requirements.txt
 ```
 
-Download the detector weights (~24 MB, open source; loaded by OpenCV's DNN module —
-there is no PyTorch or ultralytics dependency):
+Download the detector weights (~24 MB, open source; loaded by OpenCV's DNN module):
 
 ```bash
-curl -L -o models/yolov4-tiny.weights   https://github.com/AlexeyAB/darknet/releases/download/yolov4/yolov4-tiny.weights
-curl -L -o models/yolov4-tiny.cfg   https://raw.githubusercontent.com/AlexeyAB/darknet/master/cfg/yolov4-tiny.cfg
+curl -L -o models/yolov4-tiny.weights https://github.com/AlexeyAB/darknet/releases/download/yolov4/yolov4-tiny.weights
+curl -L -o models/yolov4-tiny.cfg https://raw.githubusercontent.com/AlexeyAB/darknet/master/cfg/yolov4-tiny.cfg
 ```
 
 ### Build the camera registry
@@ -175,14 +184,18 @@ python -m scripts.seed_registry --ai-top 8
 
 This writes `data/cameras.json` (the catalogue) and `data/sentinel.db` (the registry).
 
+### Run the web server directly
+
+```bash
+cd backend
+..\.venv-clean\Scripts\python.exe -m uvicorn app.main:app --port 8000 --reload
+```
+
 ### Verify the pipeline against the live grid
 
 ```bash
 python -m scripts.verify_pipeline --camera CAM-04 --seconds 180
 ```
-
-Checks backoff on an unreachable feed, PTS-driven sampling, gap tolerance, and
-throughput against real time.
 
 ### Run live ingest
 
@@ -191,22 +204,13 @@ python -m scripts.run_ingest --ai --seconds 600      # triage-selected cameras
 python -m scripts.run_ingest --cameras CAM-04 CAM-01 --seconds 300
 ```
 
-### Test 1 — own-feed demonstration
-
-Proves the full chain (detection → ANPR → watchlist → real-time alert) on close-range
-footage where plates are legible:
-
-```bash
-python -m scripts.demo_own_feed
-```
-
 ### Run the tests
 
 ```bash
-cd ../testing
-../.venv-clean/Scripts/python.exe -m pytest        # 108 tests, offline
-../.venv-clean/Scripts/python.exe -m pytest -s -m slow   # with measured numbers
-../.venv-clean/Scripts/python.exe live_grid_check.py     # against the live grid
+cd testing
+..\.venv-clean\Scripts\python.exe -m pytest        # 108 tests, offline
+..\.venv-clean\Scripts\python.exe -m pytest -s -m slow   # with measured numbers
+..\.venv-clean\Scripts\python.exe live_grid_check.py     # against the live grid
 ```
 
 Every DO/DON'T rule and pre-submission checklist item is an executable test.
