@@ -1,8 +1,8 @@
 """RTSP connector -- the working path against the Sentinel government feed.
 
-Verified 2026-09-02: rtsp://103.250.160.189:8554/stream/camNN answers unauthenticated
-for cam01..cam30. Mixed H.264/H.265, mixed 1920x1080/1280x720, mixed 20/25/30 fps,
-and stream-open latency measured between 6 s and 91 s -- so discovery uses a cheap
+Verified 2026-09-02: rtsp://<host>:8554/stream/camNN served cam01..cam30
+unauthenticated, then began requiring Basic auth the same day. Mixed H.264/H.265,
+mixed resolutions and frame rates; open latency 2-275 s, so discovery uses a cheap
 RTSP DESCRIBE rather than opening a decoder session for every camera.
 """
 from __future__ import annotations
@@ -45,12 +45,23 @@ class RTSPConnector(BaseConnector):
         """Raw RTSP DESCRIBE. Cheap -- no decoder session, no multi-second open."""
         sock = socket.socket()
         sock.settimeout(timeout)
+
+        auth = ""
+        if settings.sentinel_rtsp_user:
+            import base64
+
+            token = base64.b64encode(
+                f"{settings.sentinel_rtsp_user}:{settings.sentinel_rtsp_password}"
+                .encode()).decode()
+            auth = f"Authorization: Basic {token}\r\n"
+
         try:
             sock.connect((self.host, self.port))
             req = (
                 f"DESCRIBE {url} RTSP/1.0\r\n"
                 "CSeq: 1\r\n"
                 "Accept: application/sdp\r\n"
+                f"{auth}"
                 "User-Agent: SentinelNexus/1.0\r\n\r\n"
             )
             sock.sendall(req.encode())
@@ -60,7 +71,16 @@ class RTSPConnector(BaseConnector):
         finally:
             sock.close()
 
-        if "200 OK" not in data.split("\r\n", 1)[0]:
+        status = data.split("\r\n", 1)[0]
+        if "401" in status:
+            # The grid answered unauthenticated until 2026-09-02, then began
+            # returning 401 with WWW-Authenticate: Basic realm="ipcam". Report
+            # that plainly rather than marking every camera offline.
+            raise PermissionError(
+                "RTSP server requires credentials (401 Unauthorized). Set "
+                "SENTINEL_RTSP_USER and SENTINEL_RTSP_PASSWORD in your .env"
+            )
+        if "200 OK" not in status:
             return False, ""
 
         codec = ""
@@ -109,7 +129,8 @@ class RTSPConnector(BaseConnector):
             return result
 
         started = time.time()
-        cap = cv2.VideoCapture(descriptor.stream_url, cv2.CAP_FFMPEG)
+        cap = cv2.VideoCapture(
+            settings.with_credentials(descriptor.stream_url), cv2.CAP_FFMPEG)
         try:
             if not cap.isOpened():
                 result.status = "OFFLINE"
@@ -149,7 +170,8 @@ class RTSPConnector(BaseConnector):
         ``frame_number / reported_fps`` -- reported fps is unreliable across this
         fleet and frame intervals are variable.
         """
-        cap = cv2.VideoCapture(descriptor.stream_url, cv2.CAP_FFMPEG)
+        cap = cv2.VideoCapture(
+            settings.with_credentials(descriptor.stream_url), cv2.CAP_FFMPEG)
         try:
             if not cap.isOpened():
                 return

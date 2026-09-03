@@ -25,6 +25,13 @@ class Settings(BaseSettings):
     sentinel_hls_base: str = "https://cctv.corp8.cloud"
     sentinel_camera_count: int = 30
 
+    # RTSP credentials. The grid answered unauthenticated until 2026-09-02, then
+    # began returning 401 with WWW-Authenticate: Basic realm="ipcam". Credentials
+    # come from the environment and are injected at connection time -- they are
+    # never written into cameras.json, so the catalogue stays safe to share.
+    sentinel_rtsp_user: str = ""
+    sentinel_rtsp_password: str = ""
+
     # Auth
     jwt_secret: str = "dev-only-change-in-production"
     jwt_algorithm: str = "HS256"
@@ -75,6 +82,24 @@ class Settings(BaseSettings):
     def rtsp_url(self, n: int) -> str:
         path = self.sentinel_rtsp_path.format(n=n)
         return f"rtsp://{self.sentinel_rtsp_host}:{self.sentinel_rtsp_port}{path}"
+
+    def with_credentials(self, url: str) -> str:
+        """Inject RTSP credentials into a stream URL, if any are configured.
+
+        Applied at connection time rather than stored, so the catalogue and the
+        registry never hold a password. A URL that already carries credentials
+        is left alone.
+        """
+        if not url.startswith("rtsp://") or not self.sentinel_rtsp_user:
+            return url
+        remainder = url[len("rtsp://"):]
+        if "@" in remainder.split("/", 1)[0]:
+            return url                      # already authenticated
+        from urllib.parse import quote
+
+        user = quote(self.sentinel_rtsp_user, safe="")
+        password = quote(self.sentinel_rtsp_password, safe="")
+        return f"rtsp://{user}:{password}@{remainder}"
 
 
 settings = Settings().apply_profile()

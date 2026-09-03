@@ -143,7 +143,9 @@ class StreamWorker:
             return None
         try:
             started = time.time()
-            cap = cv2.VideoCapture(url, cv2.CAP_FFMPEG)
+            from ..config import settings
+
+            cap = cv2.VideoCapture(settings.with_credentials(url), cv2.CAP_FFMPEG)
             if not cap.isOpened():
                 cap.release()
                 _OPEN_SEMAPHORE.release()
