@@ -40,7 +40,6 @@ class RoutePoint:
     plate: str | None
     plate_confidence: float | None
     vehicle_type: str | None
-    vehicle_color: str | None
     direction: str | None
     evidence_path: str | None
     time_cluster: int | None = None
@@ -56,7 +55,6 @@ class RoutePoint:
             "plate": self.plate,
             "plate_confidence": self.plate_confidence,
             "vehicle_type": self.vehicle_type,
-            "vehicle_color": self.vehicle_color,
             "direction": self.direction,
             "evidence": self.evidence_path,
             "time_cluster": self.time_cluster,
@@ -111,7 +109,6 @@ def _to_point(s: Sighting, clusters: dict[str, int | None]) -> RoutePoint:
         plate=s.plate,
         plate_confidence=s.plate_confidence,
         vehicle_type=s.vehicle_type,
-        vehicle_color=s.vehicle_color,
         direction=s.direction,
         evidence_path=s.evidence_path,
         time_cluster=clusters.get(s.camera_id),
@@ -186,7 +183,6 @@ def search_by_plate(db: Session, plate: str, *, allow_fuzzy: bool = True,
 
 
 def search_by_attributes(db: Session, *, vehicle_type: str | None = None,
-                         vehicle_color: str | None = None,
                          camera_id: str | None = None,
                          since: datetime | None = None,
                          until: datetime | None = None,
@@ -197,8 +193,6 @@ def search_by_attributes(db: Session, *, vehicle_type: str | None = None,
     stmt = select(Sighting)
     if vehicle_type:
         stmt = stmt.where(Sighting.vehicle_type == vehicle_type)
-    if vehicle_color:
-        stmt = stmt.where(Sighting.vehicle_color == vehicle_color)
     if camera_id:
         stmt = stmt.where(Sighting.camera_id == camera_id)
     if direction:
@@ -212,7 +206,7 @@ def search_by_attributes(db: Session, *, vehicle_type: str | None = None,
         stmt.order_by(Sighting.event_ts.asc().nulls_last(), Sighting.id.asc()).limit(limit)
     ))
 
-    descriptor = " ".join(x for x in (vehicle_color, vehicle_type) if x) or "any vehicle"
+    descriptor = vehicle_type or "any vehicle"
     trace = VehicleTrace(query=descriptor, match_type="attributes")
     if not rows:
         trace.notes.append("No sightings match that description in the given window.")
@@ -257,12 +251,13 @@ def search_free_text(db: Session, query: str, *, limit: int = 200) -> VehicleTra
     if valid or any(ch.isdigit() for ch in cleaned):
         return search_by_plate(db, cleaned)
 
+    # Colour words are accepted and ignored: this grid records mostly at night,
+    # where street lighting and headlight bloom drive apparent hue, so no colour
+    # is derived or stored. Matching on one would silently return nothing.
     words = cleaned.lower().split()
-    colours = {"white", "black", "grey", "gray", "red", "blue", "green",
-               "yellow", "orange", "purple", "cyan"}
-    types = {"car", "truck", "bus", "motorcycle", "bicycle"}
-    colour = next((w for w in words if w in colours), None)
+    types = {"car", "truck", "bus", "motorcycle", "bicycle",
+             "auto-rickshaw", "rickshaw", "auto", "vehicle"}
     vtype = next((w for w in words if w in types), None)
-    return search_by_attributes(db, vehicle_type=vtype,
-                                vehicle_color="grey" if colour == "gray" else colour,
-                                limit=limit)
+    if vtype in ("rickshaw", "auto"):
+        vtype = "auto-rickshaw"
+    return search_by_attributes(db, vehicle_type=vtype, limit=limit)

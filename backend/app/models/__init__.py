@@ -163,7 +163,6 @@ class Sighting(Base):
 
     # Attributes -- always populated, the fallback correlation key
     vehicle_type: Mapped[str | None] = mapped_column(String(32), index=True, nullable=True)
-    vehicle_color: Mapped[str | None] = mapped_column(String(32), index=True, nullable=True)
     direction: Mapped[str | None] = mapped_column(String(16), nullable=True)
     detection_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     bbox: Mapped[str | None] = mapped_column(String(64), nullable=True)  # "x,y,w,h"
@@ -188,7 +187,7 @@ class Sighting(Base):
 
 
 Index("ix_sightings_plate_time", Sighting.plate, Sighting.event_ts)
-Index("ix_sightings_attr_time", Sighting.vehicle_type, Sighting.vehicle_color, Sighting.event_ts)
+Index("ix_sightings_attr_time", Sighting.vehicle_type, Sighting.event_ts)
 
 
 class WatchlistEntry(Base):
@@ -202,7 +201,6 @@ class WatchlistEntry(Base):
     active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
 
     vehicle_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    vehicle_color: Mapped[str | None] = mapped_column(String(32), nullable=True)
     owner_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     notes: Mapped[str] = mapped_column(Text, default="")
     added_by: Mapped[str] = mapped_column(String(128), default="system")

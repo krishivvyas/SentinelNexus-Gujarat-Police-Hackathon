@@ -72,21 +72,14 @@ def main() -> int:
         ).all()
         print("by vehicle type:", ", ".join(f"{t or '?'}={n}" for t, n in by_type))
 
-        by_colour = db.execute(
-            select(Sighting.vehicle_color, func.count())
-            .group_by(Sighting.vehicle_color)
-            .order_by(func.count().desc())
-        ).all()
-        print("by colour     :", ", ".join(f"{c or '?'}={n}" for c, n in by_colour))
-
         recent = list(db.scalars(
             select(Sighting).order_by(Sighting.id.desc()).limit(8)
         ))
         print("\nmost recent sightings:")
         for s in recent:
             ts = s.event_ts.strftime("%Y-%m-%d %H:%M:%S") if s.event_ts else "no overlay ts"
-            print(f"  {s.camera_id}  {ts}  {s.vehicle_color or '-':<7} "
-                  f"{s.vehicle_type or '-':<11} {s.direction or '-':<11} "
+            print(f"  {s.camera_id}  {ts}  "
+                  f"{s.vehicle_type or '-':<14} {s.direction or '-':<11} "
                   f"plate={s.plate or '-'}")
     return 0
 

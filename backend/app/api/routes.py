@@ -85,7 +85,6 @@ class WatchlistIn(BaseModel):
     category: str = "OTHER"
     severity: str = "MEDIUM"
     vehicle_type: str | None = None
-    vehicle_color: str | None = None
     owner_name: str | None = None
     notes: str = ""
 
@@ -272,16 +271,16 @@ def recent(limit: int = Query(50, le=500), with_plate_only: bool = False,
 
 @router.get("/search")
 def vehicle_search(q: str | None = None, plate: str | None = None,
-                   vehicle_type: str | None = None, vehicle_color: str | None = None,
+                   vehicle_type: str | None = None,
                    camera_id: str | None = None, direction: str | None = None,
                    db: Session = Depends(get_db),
                    _: User = Depends(security.require_any)):
     """Investigate a vehicle by plate, by description, or by free text."""
     if plate:
         return search.search_by_plate(db, plate).to_dict()
-    if vehicle_type or vehicle_color or camera_id or direction:
+    if vehicle_type or camera_id or direction:
         return search.search_by_attributes(
-            db, vehicle_type=vehicle_type, vehicle_color=vehicle_color,
+            db, vehicle_type=vehicle_type,
             camera_id=camera_id, direction=direction).to_dict()
     if q:
         return search.search_free_text(db, q).to_dict()
@@ -305,7 +304,7 @@ def get_watchlist(active_only: bool = False, db: Session = Depends(get_db),
     return [{
         "id": e.id, "plate": e.plate, "category": e.category,
         "severity": e.severity.value, "active": e.active,
-        "vehicle_type": e.vehicle_type, "vehicle_color": e.vehicle_color,
+        "vehicle_type": e.vehicle_type,
         "owner_name": e.owner_name, "notes": e.notes,
         "created_at": e.created_at,
     } for e in wl.list_entries(db, active_only=active_only)]
@@ -316,7 +315,7 @@ def add_watchlist(body: WatchlistIn, request: Request, db: Session = Depends(get
                   user: User = Depends(security.require_operator)):
     entry = wl.add_entry(db, plate=body.plate, category=body.category,
                          severity=body.severity, vehicle_type=body.vehicle_type,
-                         vehicle_color=body.vehicle_color, owner_name=body.owner_name,
+                         owner_name=body.owner_name,
                          notes=body.notes, added_by=user.username)
     security.record_audit(db, username=user.username, action="WATCHLIST_ADD",
                           entity="watchlist", entity_id=entry.plate, request=request)

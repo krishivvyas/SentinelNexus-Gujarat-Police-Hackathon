@@ -25,17 +25,12 @@ import time
 from collections.abc import Iterator
 from dataclasses import dataclass
 
-# Must be set before cv2 opens any capture.
-os.environ.setdefault(
-    "OPENCV_FFMPEG_CAPTURE_OPTIONS",
-    "rtsp_transport;tcp"          # never UDP
-    "|stimeout;10000000"          # 10 s socket timeout (microseconds)
-    "|probesize;500000"
-    "|analyzeduration;1000000"
-    "|max_delay;500000"
-    "|reorder_queue_size;0"
-    "|loglevel;error",            # decoder noise stays out of stdout
-)
+from ..config import settings  # noqa: E402  -- must precede the cv2 import
+
+# Must be set before cv2 opens any capture. The value combines the RTSP transport
+# settings with any configured HLS auth headers, so neither transport can clobber
+# the other's options -- see Settings.ffmpeg_capture_options.
+os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = settings.ffmpeg_capture_options()
 os.environ.setdefault("OPENCV_LOG_LEVEL", "ERROR")
 # libavcodec logs "error while decoding MB ..." straight to stderr on every
 # corrupt macroblock. On this grid that is constant background noise, not a
@@ -143,8 +138,6 @@ class StreamWorker:
             return None
         try:
             started = time.time()
-            from ..config import settings
-
             cap = cv2.VideoCapture(settings.with_credentials(url), cv2.CAP_FFMPEG)
             if not cap.isOpened():
                 cap.release()

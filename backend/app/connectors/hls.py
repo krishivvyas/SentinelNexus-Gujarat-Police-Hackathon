@@ -22,15 +22,24 @@ class HLSConnector(BaseConnector):
         self.auth_token = auth_token
 
     def _apply_headers(self) -> None:
-        """FFmpeg reads HLS auth headers from the capture options env var."""
+        """FFmpeg reads HLS auth headers from the capture options env var.
+
+        That variable is process-global, so the RTSP transport settings are
+        carried through here too. Replacing them outright would silently push
+        any concurrently-opening RTSP capture onto UDP, which on this grid
+        yields corrupt frames that look exactly like model bugs.
+        """
+        from ..config import settings
+
         headers = []
         if self.cookie:
             headers.append(f"Cookie: {self.cookie}")
         if self.auth_token:
             headers.append(f"Authorization: Bearer {self.auth_token}")
         if headers:
-            joined = "\\r\\n".join(headers) + "\\r\\n"
-            os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = f"headers;{joined}|loglevel;error"
+            joined = "".join(h + "\r\n" for h in headers)
+            base = settings.ffmpeg_capture_options().split("|headers;")[0]
+            os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = f"{base}|headers;{joined}"
 
     def discover(self) -> list[CameraDescriptor]:
         # HLS has no enumeration of its own; the catalogue supplies the list.

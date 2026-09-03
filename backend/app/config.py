@@ -5,6 +5,12 @@ from pathlib import Path
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+#: The portal answers stream requests from a non-browser client with
+#: ``403 browser required``, testing only that the User-Agent starts with
+#: "Mozilla". A session cookie alone is not enough. Kept free of ";" and "|"
+#: because OpenCV parses OPENCV_FFMPEG_CAPTURE_OPTIONS on those characters.
+HLS_USER_AGENT = "Mozilla/5.0"
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
 EVIDENCE_DIR = DATA_DIR / "evidence"
@@ -12,8 +18,13 @@ MODELS_DIR = BASE_DIR.parent / "models"
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore",
-                                  populate_by_name=True)
+    # env_file must be absolute: run.py chdir's into backend/ before starting
+    # uvicorn, so a relative ".env" resolves to backend/.env and the real file at
+    # the repo root is never read -- every credential silently stays empty. Both
+    # locations are accepted, repo root first.
+    model_config = SettingsConfigDict(
+        env_file=(BASE_DIR.parent / ".env", BASE_DIR / ".env"),
+        extra="ignore", populate_by_name=True)
 
     app_name: str = "Sentinel Nexus"
     database_url: str = f"sqlite:///{DATA_DIR / 'sentinel.db'}"
@@ -31,6 +42,18 @@ class Settings(BaseSettings):
     # never written into cameras.json, so the catalogue stays safe to share.
     sentinel_rtsp_user: str = ""
     sentinel_rtsp_password: str = ""
+
+    # HLS portal session. The portal serves both the stream playlists and
+    # /cameras.json behind /auth/login, so the same cookie or bearer token
+    # unlocks both. Obtain it by POSTing email + access password to
+    # {sentinel_hls_base}/auth/login and keeping the session cookie.
+    sentinel_hls_cookie: str = ""
+    sentinel_hls_token: str = ""
+
+    # Live catalogue endpoint. The camera set can change upstream, so prefer the
+    # portal's document over the local snapshot. Empty falls back to
+    # backend/data/cameras.json.
+    sentinel_catalogue_url: str = ""
 
     # Auth
     jwt_secret: str = "dev-only-change-in-production"
@@ -78,6 +101,42 @@ class Settings(BaseSettings):
         for key, value in presets.get(self.profile.lower(), presets["balanced"]).items():
             setattr(self, key, value)
         return self
+
+    def hls_headers(self) -> dict[str, str]:
+        """Auth headers for the HLS portal, empty when no session is configured."""
+        headers: dict[str, str] = {}
+        if self.sentinel_hls_cookie:
+            headers["Cookie"] = self.sentinel_hls_cookie
+        if self.sentinel_hls_token:
+            headers["Authorization"] = f"Bearer {self.sentinel_hls_token}"
+        return headers
+
+    def ffmpeg_capture_options(self) -> str:
+        """FFmpeg options for every cv2.VideoCapture in the process.
+
+        OPENCV_FFMPEG_CAPTURE_OPTIONS is read once per capture construction and
+        is process-global, so RTSP transport settings and HLS auth headers are
+        combined into one string rather than swapped per open. A demuxer ignores
+        options that do not apply to it, and combining them means no worker can
+        clobber another's transport mid-open -- an RTSP capture that lost
+        "rtsp_transport;tcp" would silently fall back to UDP, which on this grid
+        yields corrupt frames that look exactly like model bugs.
+        """
+        opts = [
+            "rtsp_transport;tcp",          # never UDP
+            "stimeout;10000000",           # 10 s socket timeout (microseconds)
+            "probesize;500000",
+            "analyzeduration;1000000",
+            "max_delay;500000",
+            "reorder_queue_size;0",
+            "loglevel;error",
+        ]
+        headers = self.hls_headers()
+        if headers:
+            joined = "".join(f"{k}: {v}\r\n" for k, v in headers.items())
+            opts.append(f"headers;{joined}")
+            opts.append(f"user_agent;{HLS_USER_AGENT}")
+        return "|".join(opts)
 
     def rtsp_url(self, n: int) -> str:
         path = self.sentinel_rtsp_path.format(n=n)

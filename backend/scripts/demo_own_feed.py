@@ -122,7 +122,7 @@ def main() -> int:
                     plate_raw=best.raw if best else None,
                     plate_confidence=best.confidence if best else None,
                     plate_frames_voted=1 if best else 0,
-                    vehicle_type=det.label, vehicle_color=det.colour,
+                    vehicle_type=det.label,
                     direction="inbound",
                     detection_confidence=round(det.confidence, 3),
                     bbox=f"{det.x},{det.y},{det.w},{det.h}",
@@ -137,11 +137,11 @@ def main() -> int:
 
                 if best:
                     found.append((best.text, best.confidence))
-                    print(f"      {det.colour} {det.label:<10} -> PLATE {best.text} "
+                    print(f"      {det.label:<14} -> PLATE {best.text} "
                           f"(confidence {best.confidence:.2f})")
                     alert_service.evaluate_sighting(db, sighting)
                 else:
-                    print(f"      {det.colour} {det.label:<10} -> plate not readable "
+                    print(f"      {det.label:<14} -> plate not readable "
                           "(recorded on attributes)")
 
     if not found:

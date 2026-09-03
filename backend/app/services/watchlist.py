@@ -62,7 +62,7 @@ def fuzzy_score(candidate: str, target: str) -> float:
 
 def add_entry(db: Session, *, plate: str, category: str = "OTHER",
               severity: str = "MEDIUM", vehicle_type: str | None = None,
-              vehicle_color: str | None = None, owner_name: str | None = None,
+              owner_name: str | None = None,
               notes: str = "", added_by: str = "system") -> WatchlistEntry:
     normalised, _ = normalise(plate)
     existing = db.scalar(select(WatchlistEntry).where(WatchlistEntry.plate == normalised))
@@ -80,7 +80,6 @@ def add_entry(db: Session, *, plate: str, category: str = "OTHER",
         category=category,
         severity=Severity(severity),
         vehicle_type=vehicle_type,
-        vehicle_color=vehicle_color,
         owner_name=owner_name,
         notes=notes,
         added_by=added_by,

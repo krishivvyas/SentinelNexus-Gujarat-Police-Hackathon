@@ -23,6 +23,12 @@ from .base import BaseConnector, CameraDescriptor, ProbeResult
 CATALOGUE_VERSION = 1
 
 
+def _index_from_id(camera_id: str) -> int | None:
+    """Numeric index from a catalogue id ("cam04" -> 4, "CAM-12" -> 12)."""
+    digits = "".join(c for c in str(camera_id) if c.isdigit())
+    return int(digits) if digits else None
+
+
 class CatalogueConnector(BaseConnector):
     """Reads a camera catalogue and delegates streaming to a transport connector."""
 
@@ -44,7 +50,7 @@ class CatalogueConnector(BaseConnector):
 
     # ----------------------------------------------------------------- loading
 
-    def _load_document(self) -> dict[str, Any]:
+    def _load_document(self) -> dict[str, Any] | list[Any]:
         source = str(self.source)
         if source.startswith(("http://", "https://")):
             import httpx
@@ -73,12 +79,23 @@ class CatalogueConnector(BaseConnector):
 
     def discover(self) -> list[CameraDescriptor]:
         doc = self._load_document()
-        entries = doc.get("cameras", doc if isinstance(doc, list) else [])
+        entries = doc if isinstance(doc, list) else doc.get("cameras", [])
 
         cameras: list[CameraDescriptor] = []
         for entry in entries:
             rtsp = entry.get("rtsp") or entry.get("stream_url") or ""
             hls = entry.get("hls") or entry.get("hls_url")
+            if not rtsp and not hls:
+                # The portal catalogue carries only id and name, so the stream
+                # URLs come from the configured templates. The camera set still
+                # comes from the catalogue -- only the URL shape is templated.
+                index = _index_from_id(entry.get("camera_id") or entry.get("id", ""))
+                if index is not None:
+                    from ..config import settings
+
+                    rtsp = settings.rtsp_url(index)
+                    hls = f"{settings.sentinel_hls_base}/cam{index:02d}/index.m3u8"
+
             # Prefer RTSP; fall back to HLS when that is all the catalogue offers.
             protocol = "RTSP" if rtsp else ("HLS" if hls else "UNKNOWN")
 

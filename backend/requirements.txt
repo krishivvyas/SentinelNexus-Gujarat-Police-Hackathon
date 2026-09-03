@@ -25,3 +25,9 @@ opencv-contrib-python==4.11.0.86
 paddlepaddle==3.0.0
 paddleocr==2.9.1
 
+# PaddlePaddle imports setuptools/pkg_resources at runtime, not just at build
+# time. Python 3.12 venvs no longer seed setuptools, so without this pin every
+# read_overlay call dies with ModuleNotFoundError and the ingest thread stops
+# on its first frame -- zero sightings, no obvious cause in the log.
+setuptools==84.0.0
+

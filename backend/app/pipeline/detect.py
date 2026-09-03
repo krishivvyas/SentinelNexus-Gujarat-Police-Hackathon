@@ -33,15 +33,33 @@ VEHICLE_CLASSES: dict[int, str] = {
     3: "motorcycle",
     5: "bus",
     7: "truck",
+    # COCO has no auto-rickshaw, and the weights are COCO-trained, so autos and
+    # small tempos land wherever they fit -- most often "car" or "truck", and
+    # verified on this grid also on class 56 ("chair"). On a road-facing camera
+    # a chair detection is a vehicle, so it is kept under a generic label rather
+    # than discarded; reclassify_auto_rickshaw() renames it when it can.
+    56: "vehicle",
 }
+
+#: Auto-rickshaw livery across Gujarat is a strong yellow body. In OpenCV's
+#: 0-179 hue scale that is roughly 18-38, measured on this fleet.
+AUTO_HUE_LOW, AUTO_HUE_HIGH = 18, 38
+#: Fraction of body pixels that must be that yellow before a box is called an
+#: auto. Set from measurement: a lit auto reads ~0.14, a red bus and a black van
+#: read ~0.00, so this is deliberately well clear of both.
+AUTO_YELLOW_FRACTION = 0.06
+#: Autos are roughly as wide as they are tall; cars and trucks are wider.
+AUTO_ASPECT_LOW, AUTO_ASPECT_HIGH = 0.65, 1.45
+#: Only these labels are reconsidered as autos. A bus is never an auto, and a
+#: two-wheeler misread as one would lose a real distinction.
+AUTO_CANDIDATE_LABELS = frozenset({"car", "truck", "vehicle"})
 PERSON_CLASS = 0
 
-# Named colours in HSV. Hue is degrees/2 as OpenCV stores it (0-179).
-_COLOUR_BANDS: list[tuple[str, int, int]] = [
-    ("red", 0, 10), ("orange", 11, 22), ("yellow", 23, 33),
-    ("green", 34, 85), ("cyan", 86, 95), ("blue", 96, 130),
-    ("purple", 131, 158), ("red", 159, 179),
-]
+# Vehicle colour is deliberately not derived. This grid records overwhelmingly
+# at night, where sodium and LED street lighting plus headlight bloom drive the
+# apparent hue more than the paint does, so a named colour describes the
+# illuminant. On a record an operator may act on, a confident wrong colour is
+# worse than no colour, so none is produced, stored or displayed.
 
 
 @dataclass(slots=True)
@@ -54,7 +72,6 @@ class Detection:
     h: int
     label: str
     confidence: float
-    colour: str = ""
 
     @property
     def bbox(self) -> tuple[int, int, int, int]:
@@ -72,49 +89,45 @@ class Detection:
 
     def to_dict(self) -> dict:
         return {"bbox": f"{self.x},{self.y},{self.w},{self.h}", "label": self.label,
-                "confidence": round(self.confidence, 3), "colour": self.colour}
+                "confidence": round(self.confidence, 3)}
 
 
-def estimate_colour(crop: np.ndarray) -> str:
-    """Best-effort dominant colour of a vehicle crop.
+def _body_patch(crop: np.ndarray) -> np.ndarray:
+    """The body-panel band of a vehicle crop, used by the auto-rickshaw test.
 
-    Samples the middle of the box to avoid road and background, and separates
-    achromatic paint (white/grey/black, which is most of this fleet) from hue
-    before naming a colour.
+    Deliberately below the vertical centre: on anything larger than a car the
+    middle of the box is glass rather than bodywork. Panels sit in the lower
+    half, inset horizontally to avoid the road and background either side.
     """
-    if crop is None or crop.size == 0:
-        return ""
     h, w = crop.shape[:2]
-    if h < 8 or w < 8:
-        return ""
+    patch = crop[int(h * 0.45):int(h * 0.90), int(w * 0.15):int(w * 0.85)]
+    return patch if patch.size else crop
 
-    # Central patch: body panels rather than windows, shadow or road.
-    patch = crop[int(h * 0.35):int(h * 0.75), int(w * 0.25):int(w * 0.75)]
-    if patch.size == 0:
-        patch = crop
 
-    hsv = cv2.cvtColor(patch, cv2.COLOR_BGR2HSV)
-    hue, sat, val = (hsv[..., i].astype(np.float32) for i in range(3))
+def looks_like_auto_rickshaw(crop: np.ndarray, width: int, height: int) -> bool:
+    """True when a box has the yellow body and squat shape of an auto-rickshaw.
 
-    mean_sat, mean_val = float(sat.mean()), float(val.mean())
+    A heuristic, not a classifier: the detector cannot name autos at all, so this
+    recovers the common case (a lit yellow auto) from whatever COCO class it
+    landed on. It is deliberately conservative -- an unlit auto in shadow stays
+    under its original label rather than risking a wrong one on a police record.
+    """
+    if crop is None or crop.size == 0 or height <= 0:
+        return False
+    if not AUTO_ASPECT_LOW <= width / height <= AUTO_ASPECT_HIGH:
+        return False
 
-    # Low saturation means the paint has no hue worth naming.
-    if mean_sat < 45:
-        if mean_val < 55:
-            return "black"
-        if mean_val > 175:
-            return "white"
-        return "grey"
-
-    # Weight hues by how saturated and bright each pixel is.
-    mask = (sat > 60) & (val > 45)
-    if not mask.any():
-        return "grey"
-    dominant = float(np.median(hue[mask]))
-    for name, low, high in _COLOUR_BANDS:
-        if low <= dominant <= high:
-            return name
-    return "grey"
+    hsv = cv2.cvtColor(_body_patch(crop), cv2.COLOR_BGR2HSV)
+    hue, sat, val = (hsv[..., i] for i in range(3))
+    # No upper brightness bound: a lit auto's yellow body is genuinely bright,
+    # and excluding bloom-level pixels drops its yellow fraction from 0.14 to
+    # 0.03. Headlight glare is washed out rather than saturated, so the sat>70
+    # floor already keeps it out.
+    paint = (sat > 70) & (val > 50)
+    if not paint.any():
+        return False
+    yellow = paint & (hue >= AUTO_HUE_LOW) & (hue <= AUTO_HUE_HIGH)
+    return float(yellow.sum()) / float(paint.size) >= AUTO_YELLOW_FRACTION
 
 
 @lru_cache(maxsize=1)
@@ -146,10 +159,11 @@ class VehicleDetector:
         self.conf_threshold = conf_threshold
         self.nms_threshold = nms_threshold
         # Drop specks: anything smaller than this fraction of the frame carries
-        # no usable plate or colour information.
+        # no usable plate information.
         self.min_area_ratio = min_area_ratio
 
-    def detect(self, frame: np.ndarray, *, with_colour: bool = True) -> list[Detection]:
+    def detect(self, frame: np.ndarray) -> list[Detection]:
+        """Detect and label vehicles in one frame."""
         if frame is None or frame.size == 0:
             return []
 
@@ -179,8 +193,14 @@ class VehicleDetector:
                 continue
 
             det = Detection(x=x, y=y, w=w, h=h, label=label, confidence=float(conf))
-            if with_colour:
-                det.colour = estimate_colour(det.crop(frame))
+            crop = det.crop(frame)
+
+            # Autos are not a COCO class, so recover them from whatever they
+            # were labelled. Only the classes an auto is actually mistaken for
+            # are considered -- a bus or a two-wheeler is never reconsidered.
+            if label in AUTO_CANDIDATE_LABELS and looks_like_auto_rickshaw(crop, w, h):
+                det.label = "auto-rickshaw"
+
             results.append(det)
 
         # Largest first: the nearest vehicle is the one most likely to yield a plate.
@@ -194,8 +214,6 @@ def draw(frame: np.ndarray, detections: list[Detection]) -> np.ndarray:
     for d in detections:
         cv2.rectangle(out, (d.x, d.y), (d.x + d.w, d.y + d.h), (0, 220, 0), 2)
         tag = f"{d.label} {d.confidence:.2f}"
-        if d.colour:
-            tag = f"{d.colour} {tag}"
         cv2.putText(out, tag, (d.x, max(14, d.y - 6)),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 220, 0), 1, cv2.LINE_AA)
     return out

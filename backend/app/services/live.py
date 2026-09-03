@@ -75,8 +75,7 @@ def annotate(preview, detections, scale: float):
 
         cv2.rectangle(preview, (x, y), (x + w, y + h), (60, 230, 60), 2)
 
-        text = f"{d.colour} {d.label}".strip() if d.colour else d.label
-        text = f"{text} {d.confidence:.0%}"
+        text = f"{d.label} {d.confidence:.0%}"
         (tw, th), base = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
 
         # Keep the label inside the frame, and put it below the box if there is

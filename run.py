@@ -13,6 +13,7 @@ Usage:
 """
 from __future__ import annotations
 
+import importlib.metadata
 import os
 import subprocess
 import sys
@@ -30,27 +31,14 @@ DATA_DIR = BACKEND_DIR / "data"
 
 if sys.platform == "win32":
     VENV_PYTHON = VENV_DIR / "Scripts" / "python.exe"
-    VENV_PIP = VENV_DIR / "Scripts" / "pip.exe"
 else:
     VENV_PYTHON = VENV_DIR / "bin" / "python"
-    VENV_PIP = VENV_DIR / "bin" / "pip"
 
-REQUIRED_PACKAGES = [
-    "fastapi",
-    "uvicorn[standard]",
-    "sqlalchemy",
-    "pydantic",
-    "pydantic-settings",
-    "python-jose[cryptography]",
-    "bcrypt",
-    "python-multipart",
-    "httpx",
-    "reportlab",
-    "numpy",
-    "opencv-contrib-python",
-    "paddlepaddle",
-    "paddleocr",
-]
+# Dependencies are installed from the pinned requirements file, never from a
+# bare-name list. The pins matter: an unpinned "numpy" resolves to 2.x, which
+# mixes with the numpy-1.x compiled wheels PaddleOCR ships and breaks at import.
+REQUIREMENTS_FILE = BACKEND_DIR / "requirements.txt"
+
 
 YOLO_WEIGHTS_URL = "https://github.com/AlexeyAB/darknet/releases/download/yolov4/yolov4-tiny.weights"
 YOLO_WEIGHTS_PATH = MODELS_DIR / "yolov4-tiny.weights"
@@ -86,20 +74,79 @@ def reexec_in_venv():
         sys.exit(result.returncode)
 
 
+def _pinned_requirements() -> list[tuple[str, str]]:
+    """Parse ``name==version`` pins out of the requirements file.
+
+    Extras are stripped -- "uvicorn[standard]==0.34.0" installs the distribution
+    "uvicorn" -- and comment/blank/unpinned lines carry nothing to verify.
+    """
+    pins: list[tuple[str, str]] = []
+    for raw in REQUIREMENTS_FILE.read_text(encoding="utf-8").splitlines():
+        line = raw.split("#", 1)[0].strip()
+        if not line or "==" not in line:
+            continue
+        name, _, version = line.partition("==")
+        pins.append((name.split("[", 1)[0].strip(), version.strip()))
+    return pins
+
+
+def _unsatisfied(pins: list[tuple[str, str]]) -> list[str]:
+    """Which pins the current interpreter does not already satisfy.
+
+    Checks installed distribution metadata rather than importability, so a
+    package present at the wrong version -- numpy 2.x against the 1.26.4 pin --
+    is reported instead of silently passing.
+    """
+    problems: list[str] = []
+    for name, want in pins:
+        try:
+            have = importlib.metadata.version(name)
+        except importlib.metadata.PackageNotFoundError:
+            problems.append(f"{name} (not installed)")
+            continue
+        if _normalise(have) != _normalise(want):
+            problems.append(f"{name} {have} (pinned {want})")
+    return problems
+
+
+def _normalise(version: str) -> tuple:
+    """Compare versions by numeric components, so "4.11.0.86" survives a round trip."""
+    parts = []
+    for chunk in version.split("."):
+        parts.append(int(chunk) if chunk.isdigit() else chunk)
+    return tuple(parts)
+
+
 def check_and_install_deps():
-    """Ensure core packages are installed in the venv."""
+    """Install the pinned dependencies, but only if they are not already satisfied."""
     print("[*] Checking dependencies ...")
-    try:
-        import fastapi
-        import uvicorn
-        import cv2
-        import sqlalchemy
-        print("[+] Core dependencies already satisfied.")
-    except ImportError:
-        print("[*] Installing required packages into virtual environment ...")
-        cmd = [str(VENV_PIP), "install"] + REQUIRED_PACKAGES
-        subprocess.run(cmd, check=True)
-        print("[+] Packages installed successfully.")
+    if not REQUIREMENTS_FILE.exists():
+        print(f"[!] No requirements file at {REQUIREMENTS_FILE}.")
+        sys.exit(1)
+
+    pins = _pinned_requirements()
+    problems = _unsatisfied(pins)
+    if not problems:
+        print(f"[+] All {len(pins)} pinned dependencies already satisfied.")
+        return
+
+    print(f"[*] {len(problems)} of {len(pins)} dependencies need installing:")
+    for problem in problems:
+        print(f"      - {problem}")
+    print(f"[*] Installing from {REQUIREMENTS_FILE} (a few minutes on a fresh venv) ...")
+    cmd = [str(VENV_PYTHON), "-m", "pip", "install", "-r", str(REQUIREMENTS_FILE)]
+    subprocess.run(cmd, check=True)
+
+    remaining = _unsatisfied(pins)
+    if remaining:
+        # pip exited 0 but the tree still does not match -- a resolver backtrack
+        # or a conflicting preinstalled package. Say so rather than booting into
+        # a mismatched environment.
+        print("[!] pip finished but these are still unsatisfied:")
+        for problem in remaining:
+            print(f"      - {problem}")
+        sys.exit(1)
+    print("[+] Packages installed successfully.")
 
 
 def check_and_download_models():

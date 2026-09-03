@@ -12,15 +12,14 @@ import socket
 import time
 from typing import Any, Iterator
 
-# FFmpeg options must be set before cv2 opens any capture.
-os.environ.setdefault(
-    "OPENCV_FFMPEG_CAPTURE_OPTIONS",
-    "rtsp_transport;tcp|stimeout;10000000|probesize;500000|analyzeduration;1000000|max_delay;500000",
-)
+from ..config import settings  # noqa: E402  -- must precede the cv2 import
+
+# FFmpeg options must be set before cv2 opens any capture. Combined RTSP and
+# HLS options come from one place so the two transports cannot clobber each
+# other -- see Settings.ffmpeg_capture_options.
+os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = settings.ffmpeg_capture_options()
 
 import cv2  # noqa: E402
-
-from ..config import settings  # noqa: E402
 from .base import BaseConnector, CameraDescriptor, ProbeResult  # noqa: E402
 
 _CODEC_MAP = {"H264": "H.264", "H265": "H.265", "HEVC": "H.265", "MP4V-ES": "MPEG-4"}

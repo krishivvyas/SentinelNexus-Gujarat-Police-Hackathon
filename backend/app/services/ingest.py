@@ -133,7 +133,6 @@ class CameraIngest:
                 plate_confidence=read.confidence or None,
                 plate_frames_voted=frames_voted,
                 vehicle_type=track.label,
-                vehicle_color=track.colour or None,
                 direction=track.direction or None,
                 detection_confidence=round(track.best_confidence, 3) or None,
                 bbox=f"{track.detection.x},{track.detection.y},"

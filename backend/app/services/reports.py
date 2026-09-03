@@ -25,7 +25,7 @@ from .search import VehicleTrace
 
 CSV_COLUMNS = [
     "sighting_id", "vehicle_number", "plate_confidence", "plate_frames_voted",
-    "vehicle_type", "vehicle_colour", "direction", "camera_id", "location",
+    "vehicle_type", "direction", "camera_id", "location",
     "latitude", "longitude", "location_accuracy", "timestamp",
     "timestamp_source", "detection_confidence", "evidence_image",
 ]
@@ -39,7 +39,6 @@ def _row(sighting: Sighting, accuracy: str = "") -> dict:
         if sighting.plate_confidence else "",
         "plate_frames_voted": sighting.plate_frames_voted or "",
         "vehicle_type": sighting.vehicle_type or "",
-        "vehicle_colour": sighting.vehicle_color or "",
         "direction": sighting.direction or "",
         "camera_id": sighting.camera_id,
         "location": sighting.location_name or "",
@@ -146,7 +145,7 @@ def trace_pdf(trace: VehicleTrace, *, title: str = "Vehicle Movement Report") ->
             p.camera_id,
             (p.location_name or "")[:26],
             p.event_ts.strftime("%Y-%m-%d %H:%M:%S") if p.event_ts else "—",
-            p.plate or f"{p.vehicle_color or ''} {p.vehicle_type or ''}".strip()
+            p.plate or (p.vehicle_type or "")
             or "unidentified",
             f"{p.plate_confidence:.2f}" if p.plate_confidence else "—",
         ])
