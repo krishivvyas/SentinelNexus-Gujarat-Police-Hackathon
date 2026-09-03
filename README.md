@@ -235,7 +235,7 @@ sampled and how many streams are open — never behaviour or accuracy.
 
 | Profile | Sample interval | Concurrent streams | Inference width | Target |
 |---|---|---|---|---|
-| `low` | 1000 ms | 2 | 512 px | Old laptop, no GPU |
+| `low` | 3000 ms | 2 | 512 px | Old laptop, no GPU |
 | `balanced` | 400 ms | 4 | 640 px | Typical dev machine |
 | `high` | 250 ms | 8 | 736 px | Many cores |
 

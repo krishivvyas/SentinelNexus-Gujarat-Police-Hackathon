@@ -79,10 +79,13 @@ Measured under that constraint (n=20, `results/lightweight_benchmark.json`):
 
 | Measure | Result |
 |---|---|
-| Detection, 1920×1080 | **233 ms median** · min 140 · p90 317 |
-| Sustained rate | **4.29 detections/s** against 2.0/s required — **2.15× headroom** |
-| Resident memory | **317 MB** with the detector loaded |
-| 2560×1440 vs 1280×720 | **1.15×** the time for **4×** the pixels |
+| Detection, bare process | **233 ms median** · p90 317 |
+| Detection, **full app in-process** | **678–775 ms** — the deployed case |
+| Sustained, deployed case | **1.6–1.9 detections/s** |
+| Required by `low` profile | **0.67/s** (1 frame per 3 s × 2 cameras) |
+| **Margin** | **2.9×** |
+| Resident memory | 317 MB bare · **374 MB** full application |
+| 2560×1440 vs 1280×720 | **~1.0×** the time for **4×** the pixels |
 
 That last row is the important one. Cost is bounded by the profile's inference
 width, not by whatever resolution a department installed, so a 1440p camera costs
@@ -92,15 +95,22 @@ barely more than a 720p one.
 > i.e. the larger frame appearing cheaper, which is not physically meaningful.
 > The figures above are medians over 20 iterations. Prefer them to any single run.
 
+> **Measure with the application loaded, not in isolation.** Detection costs
+> 233 ms in a bare process and **775 ms** with the full application resident —
+> 3.3× slower, and the second is how it actually runs. The `low` profile was sized
+> against the fast number and could not sustain itself; it needed loosening twice
+> (1 s → 2 s → 3 s) before it had real margin. The benchmark now asserts a 2×
+> margin and runs after the API tests so the app is resident when it measures.
+
 Also verified: no `torch`, `tensorflow` or `ultralytics` in the environment;
 detection explicitly targets CPU; the OCR engine is constructed lazily so a
 counting-only deployment never pays for it; the UI needs no Node, bundler or
 `node_modules`; the database is a single file.
 
 **Not verified:** behaviour on real low-end hardware — a 2-core machine with 4 GB
-RAM and slow storage. The headroom above suggests it will run at the `low`
-profile, but that is an inference from a constrained simulation, not a
-measurement.
+RAM and slow storage. The 2.9× margin above suggests it will run at the `low`
+profile, but that is an inference from a constrained simulation on a fast host,
+not a measurement on a slow one.
 
 ## Results
 

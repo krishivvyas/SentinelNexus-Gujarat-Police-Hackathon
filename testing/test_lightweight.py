@@ -95,7 +95,7 @@ def test_low_profile_reduces_every_cost_lever():
     balanced = Settings(profile="balanced").apply_profile()
 
     assert low.max_concurrent_streams == 2
-    assert low.sample_interval_ms == 1000
+    assert low.sample_interval_ms == 3000
     assert low.inference_width == 512
 
     # Each lever must move in the cheaper direction.
@@ -140,9 +140,10 @@ def test_detector_targets_cpu_explicitly():
 def test_detection_fits_a_low_end_cpu_budget(constrained, frame):
     """One frame of detection must be affordable at 2 threads.
 
-    The low profile samples one frame per second per camera and opens 2 cameras,
-    so the budget is ~2 detections per second. Anything under ~500 ms per frame
-    keeps up; we assert a looser 1.5 s so the test is not flaky on a busy host.
+    Two numbers matter and they differ by 3x. In a bare process detection costs
+    ~233 ms per 1080p frame; with the whole application resident -- API, OCR,
+    ORM, which is how it is actually deployed -- it costs ~680-775 ms. The
+    second is the one to design against.
     """
     from app.pipeline.detect import VehicleDetector
 
@@ -160,12 +161,26 @@ def test_detection_fits_a_low_end_cpu_budget(constrained, frame):
           f"{frame.shape[1]}x{frame.shape[0]}: median {median:.0f} ms "
           f"(min {min(timings):.0f}, max {max(timings):.0f})")
 
+    # 775 ms was measured with the whole application resident in this process,
+    # which is the deployed condition. 1500 ms leaves room for a slower host
+    # without letting a genuine regression through.
     assert median < 1500, f"detection too slow for a low-end host: {median:.0f} ms"
 
 
 @pytest.mark.slow
 def test_detection_keeps_up_with_the_low_profile_sampling_rate(constrained, frame):
-    """Throughput must exceed what the low profile asks of it."""
+    """Throughput must exceed what the low profile asks of it, with margin.
+
+    The margin matters and was learned the hard way. Measured at 2 threads:
+
+        bare process                       ~3.8 detections/s
+        API server in another process      ~1.4 /s
+        full application in-process        ~1.6-1.9 /s   <- the deployed case
+
+    The profile was originally sized against the first number and could not
+    sustain itself against the third. A 2x margin is asserted here so it cannot
+    be tightened back to something that only works on an unloaded machine.
+    """
     from app.pipeline.detect import VehicleDetector
 
     low = Settings(profile="low").apply_profile()
@@ -175,16 +190,17 @@ def test_detection_keeps_up_with_the_low_profile_sampling_rate(constrained, fram
     detector.detect(frame)
 
     started = time.perf_counter()
-    runs = 5
+    runs = 6
     for _ in range(runs):
         detector.detect(frame)
     achievable = runs / (time.perf_counter() - started)
 
     print(f"\n  required {required_per_second:.1f} detections/s, "
-          f"achievable {achievable:.1f}/s at {LOW_END_THREADS} threads")
-    assert achievable >= required_per_second, (
-        f"cannot sustain the low profile: need {required_per_second:.1f}/s, "
-        f"got {achievable:.1f}/s")
+          f"achievable {achievable:.1f}/s at {LOW_END_THREADS} threads "
+          f"({achievable / required_per_second:.1f}x margin)")
+    assert achievable >= required_per_second * 2.0, (
+        f"low profile leaves too little margin for a loaded machine: "
+        f"need {required_per_second * 2.0:.1f}/s to be safe, got {achievable:.1f}/s")
 
 
 @pytest.mark.slow

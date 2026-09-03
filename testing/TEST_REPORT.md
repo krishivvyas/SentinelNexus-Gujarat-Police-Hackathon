@@ -123,16 +123,39 @@ a substitute for one. Real low-end hardware — 2 cores, 4 GB RAM, slow storage 
 
 Raw results: `results/lightweight_benchmark.json`.
 
-| Measure | Result |
+Detection cost depends heavily on **what else is resident in the process**, and
+that turned out to be the most important measurement in this report:
+
+| Condition | Detection, 1080p | Sustained rate |
+|---|---|---|
+| Bare benchmark process | **233 ms** (n=20, p90 317) | 3.1–4.3 /s |
+| API server in a separate process | ~700 ms | 1.4 /s |
+| **Full application in-process** (the deployed case) | **678–775 ms** | **1.6–1.9 /s** |
+
+| Other measures | Result |
 |---|---|
-| Detection, 1920×1080 (n=20) | **233 ms median** · min 140 · p90 317 · max 329 |
-| Sustained rate | **4.29 detections/s** |
-| Required by `low` profile | 2.0 detections/s (1 frame/s × 2 cameras) |
-| **Headroom** | **2.15×** |
-| Resident memory, detector loaded | **317 MB** |
-| 1280×720 median | 202.5 ms |
-| 2560×1440 median | 232.5 ms |
-| **Cost ratio for 4× the pixels** | **1.15×** |
+| Required by `low` profile | **0.67 detections/s** (1 frame per 3 s × 2 cameras) |
+| **Margin in the deployed case** | **2.9×** |
+| Resident memory, bare | 317 MB |
+| Resident memory, full application | 374 MB |
+| 1280×720 vs 2560×1440 | 609 ms vs 617 ms — **1.0× for 4× the pixels** |
+
+> **Correction — two earlier versions of this report were wrong, in the same way.**
+>
+> The first claimed "4.29 detections/s, 2.15× headroom". That was measured in a
+> **bare process**. With the full application resident — API, PaddleOCR, SQLAlchemy,
+> all in the same process the ingest workers run in — detection is **3.3× slower**
+> (233 ms → 775 ms) and the sustained rate is 1.6/s, not 4.3/s.
+>
+> The `low` profile was sized against the fast number and could not sustain itself
+> against the real one. It sampled every 1 s across 2 cameras, requiring 2.0/s.
+> Loosening it to 2 s (1.0/s required) was still not enough. It now samples every
+> **3 s** — 0.67/s required — which gives a genuine **2.9× margin** in the deployed
+> configuration.
+>
+> The lesson generalises: a benchmark run in isolation flatters the system. The
+> test now asserts a **2× margin** and runs after the API tests specifically so the
+> application is resident when it measures.
 
 That last row is the important one. A 1440p camera costs only 1.15× a 720p camera
 despite carrying four times the pixels, because frames are downscaled to the

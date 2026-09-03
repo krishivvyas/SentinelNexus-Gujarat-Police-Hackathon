@@ -54,7 +54,14 @@ class Settings(BaseSettings):
         fewer frames from fewer cameras rather than falling behind on all of them.
         """
         presets = {
-            "low":      {"sample_interval_ms": 1000, "max_concurrent_streams": 2,
+            # Sized from the loaded case, not a clean benchmark process.
+            # Detection costs ~233 ms per 1080p frame at 2 threads in a bare
+            # process, but ~775 ms once the full application (API, OCR, ORM) is
+            # resident in the same process -- which is exactly how it is deployed.
+            # That yields ~1.6 detections/s, so a 3 s sample across 2 cameras
+            # (0.67/s required) leaves a genuine 2.4x margin. Earlier values of
+            # 1 s and 2 s only looked sufficient against the clean-process number.
+            "low":      {"sample_interval_ms": 3000, "max_concurrent_streams": 2,
                          "inference_width": 512},
             "balanced": {"sample_interval_ms": 400, "max_concurrent_streams": 4,
                          "inference_width": 640},
