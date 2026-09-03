@@ -102,6 +102,7 @@
   <span class="pill live" id="wsPill">connecting…</span>
   <nav>
     <button class="active" onclick="show('overview',this)">Overview</button>
+    <button onclick="show('live',this)">Live</button>
     <button onclick="show('map',this)">GIS Map</button>
     <button onclick="show('investigate',this)">Investigate</button>
     <button onclick="show('alerts',this)">Alerts</button>
@@ -142,6 +143,33 @@
         <thead><tr><th>Time (overlay clock)</th><th>Camera</th><th>Location</th><th>Vehicle</th><th>Direction</th><th>Plate</th></tr></thead>
         <tbody id="recentBody"><tr><td colspan="6" class="empty">No detections yet</td></tr></tbody>
       </table></div>
+    </div>
+  </section>
+
+  <!-- LIVE -->
+  <section id="live" class="view">
+    <div class="panel">
+      <h2>Live Monitoring</h2>
+      <div class="row">
+        <select id="liveCam" style="min-width:280px"></select>
+        <label class="muted" style="font-size:12.5px">
+          <input type="checkbox" id="liveDetect" checked> Draw detections
+        </label>
+        <button class="go" onclick="startLive()">Open stream</button>
+        <button class="ghost" onclick="stopLive()">Stop</button>
+        <span class="muted" id="liveState" style="font-size:12px"></span>
+      </div>
+      <p class="muted" style="font-size:12px;margin:10px 0 0">
+        Green boxes are live detections drawn by the same detector that writes sightings —
+        what you see is what the AI sees. Streams on this grid take <b>10–90 seconds</b> to
+        open, and with detection on the preview runs at a few frames per second because each
+        frame costs about 230&nbsp;ms of CPU. The PTS clock in the corner confirms the feed
+        is advancing.
+      </p>
+    </div>
+    <div class="panel" style="text-align:center">
+      <img id="liveImg" alt="No stream open"
+           style="max-width:100%;border-radius:8px;border:1px solid var(--line);background:#0a0f16;min-height:220px">
     </div>
   </section>
 
@@ -292,6 +320,8 @@ function show(id, btn) {
   document.getElementById(id === 'map' ? 'map-view' : id).classList.add('active');
   if (btn) btn.classList.add('active');
   if (id === 'map') initMap();
+  if (id === 'live') fillLiveCameras();
+  if (id !== 'live') stopLive();      // never leave a camera slot held open
   if (id === 'cameras') renderCameras();
   if (id === 'alerts') { loadAlerts(); loadWatchlist(); }
   if (id === 'reports') loadByCamera();
@@ -359,6 +389,44 @@ function renderCameras() {
       <td>${pos}</td></tr>`;
   }).join('') : '<tr><td colspan="9" class="empty">No cameras match</td></tr>';
 }
+
+function fillLiveCameras() {
+  const sel = document.getElementById('liveCam');
+  if (sel.options.length) return;
+  // Best-scoring cameras first: those are the ones worth watching.
+  const usable = cameras.filter(c => c.status !== 'OFFLINE')
+                        .sort((a, b) => b.plate_score - a.plate_score);
+  sel.innerHTML = usable.map(c =>
+    `<option value="${esc(c.camera_id)}">${esc(c.camera_id)} — ${esc(c.location_name || c.name)}`
+    + ` (${esc(c.codec || '?')}, ${c.width || '?'}×${c.height || '?'}, triage ${c.plate_score})</option>`
+  ).join('');
+}
+
+function startLive() {
+  const cam = document.getElementById('liveCam').value;
+  if (!cam) return;
+  const detect = document.getElementById('liveDetect').checked;
+  const img = document.getElementById('liveImg');
+  const state = document.getElementById('liveState');
+
+  state.textContent = 'connecting — this can take 10–90s…';
+  // MJPEG in a plain <img>. The token goes in the query string because an
+  // <img> tag cannot send an Authorization header.
+  img.src = `/api/cameras/${encodeURIComponent(cam)}/live`
+          + `?detect=${detect}&token=${encodeURIComponent(TOKEN)}&t=${Date.now()}`;
+  img.onload = () => { state.textContent = 'streaming ' + cam; };
+  img.onerror = () => { state.textContent = 'stream failed — try another camera'; };
+}
+
+function stopLive() {
+  const img = document.getElementById('liveImg');
+  if (!img || !img.src) return;
+  img.src = '';                       // closes the HTTP connection, freeing the slot
+  const state = document.getElementById('liveState');
+  if (state) state.textContent = '';
+}
+
+window.addEventListener('beforeunload', stopLive);
 
 function initMap() {
   if (map) { map.invalidateSize(); return; }

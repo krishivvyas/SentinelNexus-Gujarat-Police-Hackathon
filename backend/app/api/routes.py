@@ -7,7 +7,7 @@ from datetime import datetime
 
 from fastapi import (APIRouter, Depends, HTTPException, Query, Request,
                      WebSocket, WebSocketDisconnect)
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
@@ -170,6 +170,43 @@ def camera_thumbnail(camera_id: str, db: Session = Depends(get_db)):
     if not path.exists():
         raise HTTPException(status_code=404, detail="No thumbnail")
     return FileResponse(path, media_type="image/jpeg")
+
+
+@router.get("/cameras/{camera_id}/live")
+def camera_live(camera_id: str, detect: bool = True, token: str | None = None,
+                db: Session = Depends(get_db)):
+    """Live MJPEG preview with detection boxes drawn on.
+
+    Authenticated by query parameter rather than header: this endpoint is
+    consumed by an ``<img src=...>`` tag, which cannot send an Authorization
+    header. The token is the same JWT used everywhere else.
+    """
+    from jose import JWTError, jwt
+
+    from ..config import settings as cfg
+    from ..services import live as live_service
+
+    if not token:
+        raise HTTPException(status_code=401, detail="token query parameter required")
+    try:
+        jwt.decode(token, cfg.jwt_secret, algorithms=[cfg.jwt_algorithm])
+    except JWTError:
+        raise HTTPException(status_code=401, detail="invalid token") from None
+
+    camera = registry.get_camera(db, camera_id)
+    if camera is None or not camera.stream_url:
+        raise HTTPException(status_code=404, detail="Camera not found")
+
+    return StreamingResponse(
+        live_service.stream_camera(
+            camera.stream_url,
+            camera_id=camera.camera_id,
+            detect=detect,
+            fallback_url=camera.hls_url,
+        ),
+        media_type=live_service.media_type(),
+        headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("/cameras/geo/features")
