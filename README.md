@@ -19,18 +19,19 @@ This is an active build against a 2026-09-07 deadline. What is real today:
 
 | Component | Status |
 |---|---|
-| Camera registry + catalogue (`cameras.json`) | **Working** — 30 cameras, 24 online |
+| Camera registry + catalogue (`cameras.json`) | **Working** — 30 cameras, 24 online, 6 degraded |
 | Connector/federation layer (RTSP, HLS, catalogue) | **Working** |
 | Live stream worker (PTS, backoff, loop handling) | **Working**, verified against the live grid |
 | Burned-in overlay OCR (timestamp + site name) | **Working** — authoritative event clock |
-| Camera triage + time-cluster analysis | **Working** |
-| Vehicle detection + attributes (OpenCV DNN) | **Working** — ~4,500 sightings ingested |
-| ANPR (localise → restore → OCR → normalise → vote) | **Working** — reads plates ≥60 px |
-| Cross-camera tracking and investigation | **Working** — plate and attribute search |
+| Camera triage + time-cluster analysis | **Working** — plate score + cluster per camera |
+| Vehicle detection (OpenCV DNN, YOLOv4-tiny) | **Working** — ~9,800 sightings in the local run |
+| ANPR (localise → restore → OCR → normalise → vote) | **Working** — reads plates down to ~60 px |
+| Cross-camera tracking and investigation | **Working** — plate, attribute and free-text search |
+| Live MJPEG preview with detections drawn on | **Working** — plain `<img>`, no player library |
 | Watchlist + real-time alerts (WebSocket) | **Working** |
 | GIS map, CSV/PDF reports | **Working** |
-| JWT auth + RBAC + audit trail | **Working** |
-| REST API + command-centre UI | **Working** — 25 endpoints, no build step |
+| JWT auth + RBAC + audit trail | **Working** — ADMIN / OPERATOR / ANALYST |
+| REST API + command-centre UI | **Working** — 25 REST endpoints + 1 WebSocket, no build step |
 
 Full plan, measurements and daily schedule: [`implementation.md`](implementation.md).
 Architecture and design rationale: [`docs/HLD.md`](docs/HLD.md).
@@ -43,11 +44,13 @@ cd backend
 ```
 
 Open <http://localhost:8000>. Demo accounts: `admin` / `operator` / `analyst`,
-password `sentinel-<role>`.
+password `sentinel-<role>`. Interactive API docs are at `/docs`, liveness at `/health`.
 
 ### Or use the One-Click Runner (`run.py`)
 
-Handles virtualenv activation, dependencies, AI weights, database seeding, and server launching in one command:
+Creates the virtualenv, installs the pinned dependencies, downloads the detector
+weights, seeds the database if it is missing, then starts the server and opens the
+browser:
 
 ```bash
 python run.py
@@ -60,11 +63,12 @@ python run.py
 
 These findings shaped the architecture and are worth reading before changing anything.
 
-- **RTSP works unauthenticated; HLS does not.** `rtsp://103.250.160.189:8554/stream/camNN` is directly reachable. The HLS endpoint and `/api/ingest` both redirect to `/auth/login`. RTSP is the primary transport; HLS is the fallback for networks where 8554 is blocked.
+- **RTSP works unauthenticated; HLS does not.** `rtsp://103.250.160.189:8554/stream/camNN` is directly reachable. The HLS endpoint and `/api/ingest` both redirect to `/auth/login`. RTSP is the primary transport; HLS is the fallback for networks where 8554 is blocked. (The grid began answering RTSP with `401 WWW-Authenticate: Basic realm="ipcam"` on 2026-09-02 — credentials come from `SENTINEL_RTSP_USER` / `SENTINEL_RTSP_PASSWORD` and are injected at connection time, never stored in the catalogue.)
 - **Reported frame rate is unusable.** CAM-06 reports 90,000 fps and CAM-30 reports 200. Nothing in this codebase derives timing from `CAP_PROP_FPS` or from frame arrival time — all timing comes from the decoder PTS and the burned-in overlay clock.
-- **Every frame carries a wall-clock overlay and a site name.** These are replayed recordings, so content time has nothing to do with decode time. The overlay clock is the authoritative event timestamp, and the site labels are genuine Ahmedabad locations (Chimanbhai Bridge, Janpath, ONGC Office, Visat Teen Rasta, CN Vidyalaya, Rambaugh).
-- **The cameras are not one synchronised network.** Overlay clocks span at least five recording dates. A vehicle can only be traced across cameras whose recordings overlap in time, so cameras are grouped into *time clusters*. The primary cluster — **CAM-01, 02, 03, 04, 05, 09, 12, 13, 14** — shares a window and is the real cross-camera tracking network. AI camera selection scores plate readability **and** cluster membership.
+- **Every frame carries a wall-clock overlay and a site name.** These are replayed recordings, so content time has nothing to do with decode time. The overlay clock is the authoritative event timestamp, and the site labels are genuine Ahmedabad locations (Chiman bhai Bridge, Janpath, O.N.G.C. Office, Visat Teen Rasta, CN-Vidhyalaya, GDM-Rambaugh).
+- **The cameras are not one synchronised network.** The overlay clocks that could be read span four recording dates and resolve into five time clusters. A vehicle can only be traced across cameras whose recordings overlap in time, so cameras are grouped into *time clusters*. The primary cluster — **CAM-01, 02, 03, 04, 05, 09, 12, 13, 14** — shares a window and is the real cross-camera tracking network. AI camera selection scores plate readability **and** cluster membership.
 - **Plate readability is the defining risk.** These are wide-angle night overview PTZ cameras, not dedicated ANPR cameras; plates run 20–40 px with motion blur and headlight bloom. The mitigation is camera triage, plate-recovery preprocessing with multi-frame voting, attribute-based sightings that work without a readable plate, and a two-track demonstration. Detections are never fabricated — if a plate cannot be read, we say so.
+- **Vehicle colour is deliberately not derived.** At night the sodium and LED lighting plus headlight bloom drive apparent hue more than the paint does, so a named colour would describe the illuminant. On a record an operator may act on, a confident wrong colour is worse than none, so no colour is produced, stored or displayed. Sightings carry vehicle type and direction instead.
 
 ---
 
@@ -76,9 +80,9 @@ These findings shaped the architecture and are worth reading before changing any
         +-----------------------+-----------------------+
         |                                               |
   CAMERA REGISTRY                              CONNECTOR LAYER
-  SQLite + cameras.json                   RTSP | HLS | ONVIF | VMS
-  30 cams, lat/lon, codec, health             (pluggable adapters)
-        |                                               |
+  SQLite + cameras.json                    RTSP | HLS | CATALOGUE
+  30 cams, lat/lon, codec, health         (ONVIF / VMS adapters slot
+        |                                  into the same ABC)
         +-----------------------+-----------------------+
                                 v
                      STREAM WORKER POOL
@@ -88,16 +92,16 @@ These findings shaped the architecture and are worth reading before changing any
                      +----------+----------+
                      |                     |
               OVERLAY OCR            VEHICLE DETECTOR
-          (timestamp + site)         (OpenCV DNN, ONNX)
+          (timestamp + site)      (OpenCV DNN, YOLOv4-tiny)
                      |                     |
                      |              +------+------+
                      |         PLATE DETECT   ATTRIBUTES
-                     |              |        type / colour
+                     |              |        type / direction
                      |          PLATE OCR         |
                      +--------------+-------------+
                                     v
                             SIGHTING EVENT
-              {plate?, type, colour, cam, lat/lon, ts, conf, evidence}
+              {plate?, type, direction, cam, lat/lon, ts, conf, evidence}
                                     v
                      +--------------+--------------+
               EVENT DATABASE                  WATCHLIST
@@ -111,7 +115,9 @@ These findings shaped the architecture and are worth reading before changing any
 ```
 
 Every connector converts its source into the same `CameraDescriptor`, so nothing above
-the connector layer knows which protocol a camera speaks.
+the connector layer knows which protocol a camera speaks. `BaseConnector` is the
+abstract adapter; RTSP, HLS and the catalogue are implemented, and ONVIF or a vendor
+VMS API would be a new subclass rather than a change anywhere upstream.
 
 ---
 
@@ -141,12 +147,19 @@ python -m venv .venv-clean
 # ./.venv-clean/bin/pip install -r backend/requirements.txt
 ```
 
-Download the detector weights (~24 MB, open source; loaded by OpenCV's DNN module):
+Copy `.env.example` to `.env` and fill in the RTSP credentials and `JWT_SECRET`.
+
+Download the detector weights (~24 MB, open source; loaded by OpenCV's DNN module via
+`cv2.dnn.readNetFromDarknet`). The `.cfg` is committed, so only the weights file is
+strictly required:
 
 ```bash
 curl -L -o models/yolov4-tiny.weights https://github.com/AlexeyAB/darknet/releases/download/yolov4/yolov4-tiny.weights
-curl -L -o models/yolov4-tiny.cfg https://raw.githubusercontent.com/AlexeyAB/darknet/master/cfg/yolov4-tiny.cfg
+# already in the repo, re-fetch only if it is missing:
+# curl -L -o models/yolov4-tiny.cfg https://raw.githubusercontent.com/AlexeyAB/darknet/master/cfg/yolov4-tiny.cfg
 ```
+
+`run.py` downloads both automatically if they are absent.
 
 ### Build the camera registry
 
@@ -160,7 +173,8 @@ python -m scripts.survey_cameras --frames 25 --workers 6
 python -m scripts.seed_registry --ai-top 8
 ```
 
-This writes `data/cameras.json` (the catalogue) and `data/sentinel.db` (the registry).
+This writes `data/camera_survey.json`, `data/cameras.json` (the catalogue) and
+`data/sentinel.db` (the registry).
 
 ### Run the web server directly
 
@@ -168,6 +182,8 @@ This writes `data/cameras.json` (the catalogue) and `data/sentinel.db` (the regi
 cd backend
 ..\.venv-clean\Scripts\python.exe -m uvicorn app.main:app --port 8000 --reload
 ```
+
+Default users and a representative watchlist are seeded on first startup.
 
 ### Verify the pipeline against the live grid
 
@@ -180,35 +196,37 @@ python -m scripts.verify_pipeline --camera CAM-04 --seconds 180
 ```bash
 python -m scripts.run_ingest --ai --seconds 600      # triage-selected cameras
 python -m scripts.run_ingest --cameras CAM-04 CAM-01 --seconds 300
+python -m scripts.run_ingest --cameras CAM-04 --no-anpr    # detection only
 ```
 
-### Run the tests
+### Run the own-feed demonstration
+
+The government grid cannot prove the ANPR path end to end, because its plates are
+20–40 px at night. This runs the identical pipeline over close-range footage where
+plates are legible, and shows detection → ANPR → watchlist → alert firing:
 
 ```bash
-cd testing
-..\.venv-clean\Scripts\python.exe -m pytest        # 108 tests, offline
-..\.venv-clean\Scripts\python.exe -m pytest -s -m slow   # with measured numbers
-..\.venv-clean\Scripts\python.exe live_grid_check.py     # against the live grid
+python -m scripts.demo_own_feed
 ```
-
-Every DO/DON'T rule and pre-submission checklist item is an executable test.
-See [`testing/README.md`](testing/README.md) for the rule-to-test mapping,
-the live-grid checklist results, and the low-end machine measurements.
 
 ---
 
 ## Configuration
 
-Settings come from the environment or a `.env` file — never hardcoded. See
-`backend/app/config.py`.
+Settings come from the environment or a `.env` file — never hardcoded. The file is read
+from the repo root first, then `backend/.env`. See `backend/app/config.py`.
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `SENTINEL_PROFILE` | `balanced` | Hardware profile: `low`, `balanced`, `high` |
 | `SENTINEL_MAX_STREAMS` | from profile | Hard cap on simultaneously open captures |
-| `DATABASE_URL` | `sqlite:///data/sentinel.db` | Swap to PostgreSQL/PostGIS here |
-| `JWT_SECRET` | dev placeholder | **Must be set in production** |
 | `SENTINEL_RTSP_HOST` / `_PORT` | `103.250.160.189` / `8554` | Grid endpoint |
+| `SENTINEL_RTSP_USER` / `_PASSWORD` | empty | Basic auth, injected at connection time |
+| `SENTINEL_HLS_COOKIE` / `_TOKEN` | empty | Portal session for the HLS fallback |
+| `SENTINEL_CATALOGUE_URL` | empty | Live `cameras.json`; empty falls back to the local file |
+| `SENTINEL_PLATE_REGION` | `IN` | Plate layout to validate: `IN` or `GENERIC` |
+| `DATABASE_URL` | `sqlite:///backend/data/sentinel.db` | Swap to PostgreSQL/PostGIS here |
+| `JWT_SECRET` | dev placeholder | **Must be set in production** |
 
 ### Hardware profiles
 
@@ -241,14 +259,20 @@ editing the catalogue, not the application.
       "id": "cam01",
       "camera_id": "CAM-01",
       "name": "Chiman bhai Bridge",
+      "department": "SENTINEL-GOV",
+      "district": "Ahmedabad",
       "location_name": "Chiman bhai Bridge",
       "lat": 23.0064, "lon": 72.5698,
       "location_accuracy": "APPROXIMATE",
       "location_source": "Chimanbhai Patel Bridge over the Sabarmati, from overlay label",
       "rtsp": "rtsp://103.250.160.189:8554/stream/cam01",
       "hls":  "https://cctv.corp8.cloud/cam01/index.m3u8",
-      "codec": "H.264", "width": 1920, "height": 1080, "fps": 30,
-      "status": "ONLINE", "plate_score": 85.0, "time_cluster": 2
+      "codec": "H.264", "width": 1920, "height": 1080, "fps": 30.0,
+      "status": "ONLINE", "plate_score": 85.0,
+      "triage_note": "high near-field detail; headlight bloom; in primary time cluster",
+      "time_cluster": 2,
+      "overlay_ts": "2026-06-13 23:24:03",
+      "source_index": 1
     }
   ]
 }
@@ -265,6 +289,7 @@ CatalogueConnector("https://cctv.corp8.cloud/cameras.json", cookie=session_cooki
 resolved and validated inside the Ahmedabad bounding box, `APPROXIMATE` is a
 landmark-level estimate from the camera's overlay label, and `UNKNOWN` cameras are not
 drawn on the map at all. A confidently-wrong pin on a police map is worse than no pin.
+Today that is 3 `GEOCODED`, 5 `APPROXIMATE` and 22 `UNKNOWN`.
 
 ---
 
@@ -288,18 +313,19 @@ sentinal/
 │   │   │                              #   users, audit_log, camera_metadata_history
 │   │   ├── pipeline/
 │   │   │   ├── __init__.py
-│   │   │   ├── detect.py              # vehicle detection on OpenCV DNN + colour
+│   │   │   ├── detect.py              # vehicle detection on OpenCV DNN (YOLOv4-tiny)
 │   │   │   ├── ocr.py                 # plate OCR, normalisation, multi-frame voting
 │   │   │   ├── overlay.py             # burned-in timestamp + site-name OCR
 │   │   │   ├── plate.py               # plate localisation and image restoration
 │   │   │   ├── track.py               # IoU tracker (enables plate voting)
 │   │   │   └── worker.py              # PTS-driven stream worker, backoff, loop detection
-│   │   ├── schemas/                   # Pydantic request/response models  (planned)
+│   │   ├── schemas/                   # Pydantic request/response models  (empty — planned)
 │   │   │   └── __init__.py
 │   │   ├── services/
 │   │   │   ├── __init__.py
 │   │   │   ├── alerts.py              # alert engine + WebSocket broadcast
 │   │   │   ├── ingest.py              # per-camera orchestration
+│   │   │   ├── live.py                # MJPEG live preview with detections drawn on
 │   │   │   ├── registry.py            # camera registry + metadata audit trail
 │   │   │   ├── reports.py             # CSV detection log, PDF evidence report
 │   │   │   ├── search.py              # cross-camera plate + attribute correlation
@@ -311,74 +337,72 @@ sentinal/
 │   │   └── main.py                    # FastAPI app; serves the API and the UI
 │   ├── static/
 │   │   └── index.html                 # command-centre UI — no build step, no node_modules
-│   ├── data/                          # generated — not all of it is committed
-│   │   ├── evidence/                  # detection snapshots               (empty)
-│   │   ├── ocr_samples/               # full-res OCR/ANPR test corpus     (3 files)
-│   │   ├── thumbnails/                # 480px camera previews             (28 files)
+│   ├── data/                          # generated — most of it is gitignored
+│   │   ├── evidence/                  # detection snapshots            (gitignored)
+│   │   ├── own_feed/                  # close-range demo footage       (gitignored)
+│   │   ├── ocr_samples/               # full-res OCR/ANPR test corpus  (gitignored)
+│   │   ├── thumbnails/                # per-camera preview stills      (gitignored)
 │   │   ├── camera_survey.json         # per-camera probe results + triage scores
 │   │   ├── cameras.json               # THE CATALOGUE — camera list is read from here
 │   │   ├── geocode_cache.json         # Nominatim lookups, cached to avoid re-querying
 │   │   ├── overlay_reads.json         # OCR'd overlay clocks + site names
-│   │   └── sentinel.db                # SQLite registry + events
+│   │   └── sentinel.db                # SQLite registry + events       (gitignored)
 │   ├── scripts/
-│   │   ├── demo_own_feed.py           # Test 1: detection → ANPR → watchlist → alert
+│   │   ├── demo_own_feed.py           # own-feed run: detection → ANPR → watchlist → alert
 │   │   ├── run_ingest.py              # live ingest against the grid
 │   │   ├── seed_registry.py           # catalogue build + geocode + time-cluster + seed
 │   │   ├── survey_cameras.py          # fleet probe + plate-readability triage
 │   │   └── verify_pipeline.py         # live verification harness against the grid
 │   ├── requirements.txt
 │   └── requirements-dev.txt
-├── testing/                           # all tests live here
-│   ├── README.md                      # rule-to-test map + measured results
-│   ├── conftest.py                    # puts backend/ on the import path
-│   ├── helpers.py                     # comment-aware source scanning
-│   ├── live_grid_check.py             # pre-submission checklist vs the live grid
-│   ├── test_api_security.py           # API shape, auth, RBAC, path traversal
-│   ├── test_catalogue.py              # cameras.json contract, mixed codecs
-│   ├── test_field_rules.py            # every DO / DON'T
-│   ├── test_lightweight.py            # cost under a constrained CPU budget
-│   ├── test_plate_validation.py       # signage must never be reported as a plate
-│   └── test_worker_timing.py          # loop point vs inter-frame gap
 ├── docs/
 │   ├── HLD.md                         # high-level design
-│   └── submission/                    # output report + evidence PDF
-├── models/                            # detector weights                  (not committed)
+│   └── submission/
+│       ├── government_feed_detections.csv   # detection log from the grid (earlier export)
+│       └── own_feed_trace_MPE3389.pdf       # evidence report from the own-feed run
+├── models/
+│   ├── yolov4-tiny.cfg                # committed
+│   └── yolov4-tiny.weights            # downloaded, gitignored (~24 MB)
+├── .env.example                       # copy to .env and fill in
 ├── .gitignore
 ├── implementation.md                  # full plan, measurements, daily schedule
 ├── run.py                             # one-click launcher & environment orchestrator
 └── README.md
 ```
 
-Detector weights, `*.db`, `evidence/` and the virtualenv are gitignored — clone, download
-the weights (see Install), then run the two seed scripts to regenerate the data directory.
+Detector weights, `*.db`, `evidence/`, `thumbnails/`, `ocr_samples/`, `own_feed/` and the
+virtualenv are gitignored — clone, download the weights (see Install), then run the two
+seed scripts to regenerate the data directory.
 
 ---
 
 ## Field-rules compliance
 
-The grid has specific operational requirements. Each is implemented and verified:
+The grid has specific operational requirements. Each is implemented, and each was
+exercised against the live grid during development:
 
 | Rule | How |
 |---|---|
-| Force RTSP over TCP | `rtsp_transport;tcp` set before `cv2` import |
-| HLS fallback when 8554 blocked | `HLSConnector`; worker alternates after repeated failures |
-| Never trust `CAP_PROP_FPS` | Stored as metadata only, never used in a calculation |
-| Drive timing from PTS | Sampling compares PTS to PTS, never arrival time |
-| Tolerate inter-frame gaps | 14 s gap survived without reconnecting |
+| Force RTSP over TCP | `OPENCV_FFMPEG_CAPTURE_OPTIONS` with `rtsp_transport;tcp`, set before `cv2` import in `pipeline/worker.py` |
+| HLS fallback when 8554 blocked | `HLSConnector`; the worker alternates to `fallback_url` after repeated primary failures |
+| Never trust `CAP_PROP_FPS` | Read once during the survey and stored as metadata; never used in a calculation |
+| Drive timing from PTS | Sampling compares `CAP_PROP_POS_MSEC` to `CAP_PROP_POS_MSEC`, never arrival time |
+| Tolerate inter-frame gaps | A 16.2 s PTS gap was survived live with 0 reconnects |
 | Reconnect with backoff | 2 s → 30 s cap, interruptible wait, never a tight loop |
-| Decoder warnings non-fatal | Logged once, then suppressed; self-correct at first IDR |
-| Handle scene discontinuity | `detect_discontinuity()`, unit-tested, resets sampler state |
-| Pace the load | Global semaphore; every open paired with a close |
-| Build against live capture | Every frame in this project came off the live grid |
+| Decoder warnings non-fatal | `OPENCV_FFMPEG_LOGLEVEL=-8`; logged once, then suppressed; self-correct at first IDR |
+| Handle scene discontinuity | `detect_discontinuity()` on backward or large-forward PTS jumps; resets sampler and tracker state |
+| Pace the load | Global `_OPEN_SEMAPHORE` sized from the profile; every open paired with a close |
+| Build against live capture | Every frame from the grid in this project came off the live feed |
 
 ### Measured throughput
 
 Replacing `cap.read()` with `cap.grab()` + conditional `cap.retrieve()` — so only frames
-we keep pay for colour conversion and the buffer copy:
+we keep pay for colour conversion and the buffer copy (CAM-04, 1080p, 180 s; full
+numbers in [`implementation.md`](implementation.md)):
 
 | | Before | After |
 |---|---|---|
-| Frames delivered (180 s, 1080p) | 72 | **109** |
+| Frames delivered | 72 | **109** |
 | PTS span covered | 95 s | **168 s** |
 | Throughput | 0.53× real time | **0.91× real time** |
 
@@ -397,14 +421,23 @@ we keep pay for colour conversion and the buffer copy:
 - **6 of 30 cameras are degraded** — decode corruption or no usable frames.
 - **22 cameras have no trustworthy coordinates.** They are excluded from the map until set
   through the registry, which records every change in `camera_metadata_history`.
+- **Auto-rickshaw labelling is a heuristic, not a classifier.** The COCO-trained weights
+  have no auto class, so a yellow-body-and-aspect-ratio test recovers the common lit case
+  and anything ambiguous keeps its original label.
+- **The map needs internet.** Leaflet and its tiles are loaded from a CDN; the rest of the
+  UI is served from this process and works offline.
 - **The venv is ~1 GB.** PaddlePaddle is 360 MB and OpenCV 124 MB; PaddleOCR imports
   `imgaug` and `albumentations` unconditionally so neither can be dropped. Runtime cost is
   kept low instead: OCR is lazily constructed, frames are downscaled before inference, and
   only cameras being processed are opened.
+- **No automated test suite ships with this repo.** Verification is done through
+  `scripts/verify_pipeline.py` against the live grid and `scripts/demo_own_feed.py` for
+  the end-to-end ANPR path.
 
 ---
 
 ## Licence and attribution
 
-Built with open-source components: OpenCV, PaddleOCR, FastAPI, SQLAlchemy, Leaflet.
+Built with open-source components: OpenCV, PaddleOCR, FastAPI, SQLAlchemy, Leaflet,
+ReportLab, and the YOLOv4-tiny weights from the Darknet project.
 Camera imagery belongs to the Sentinel/ITMS operator and is used for evaluation only.
