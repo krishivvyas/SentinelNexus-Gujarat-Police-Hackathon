@@ -76,78 +76,41 @@ def reexec_in_venv():
         sys.exit(result.returncode)
 
 
-def _pinned_requirements() -> list[tuple[str, str]]:
-    """Parse ``name==version`` pins out of the requirements file.
-
-    Extras are stripped -- "uvicorn[standard]==0.34.0" installs the distribution
-    "uvicorn" -- and comment/blank/unpinned lines carry nothing to verify.
-    """
-    pins: list[tuple[str, str]] = []
-    for raw in REQUIREMENTS_FILE.read_text(encoding="utf-8").splitlines():
-        line = raw.split("#", 1)[0].strip()
-        if not line or "==" not in line:
-            continue
-        name, _, version = line.partition("==")
-        pins.append((name.split("[", 1)[0].strip(), version.strip()))
-    return pins
-
-
-def _unsatisfied(pins: list[tuple[str, str]]) -> list[str]:
-    """Which pins the current interpreter does not already satisfy.
-
-    Checks installed distribution metadata rather than importability, so a
-    package present at the wrong version -- numpy 2.x against the 1.26.4 pin --
-    is reported instead of silently passing.
-    """
-    problems: list[str] = []
-    for name, want in pins:
-        try:
-            have = importlib.metadata.version(name)
-        except importlib.metadata.PackageNotFoundError:
-            problems.append(f"{name} (not installed)")
-            continue
-        if _normalise(have) != _normalise(want):
-            problems.append(f"{name} {have} (pinned {want})")
-    return problems
-
-
-def _normalise(version: str) -> tuple:
-    """Compare versions by numeric components, so "4.11.0.86" survives a round trip."""
-    parts = []
-    for chunk in version.split("."):
-        parts.append(int(chunk) if chunk.isdigit() else chunk)
-    return tuple(parts)
+CORE_MODULES = [
+    ("fastapi", "fastapi"),
+    ("uvicorn", "uvicorn[standard]"),
+    ("sqlalchemy", "sqlalchemy"),
+    ("pydantic", "pydantic"),
+    ("pydantic_settings", "pydantic-settings"),
+    ("jose", "python-jose[cryptography]"),
+    ("bcrypt", "bcrypt"),
+    ("multipart", "python-multipart"),
+    ("httpx", "httpx"),
+    ("reportlab", "reportlab"),
+    ("numpy", "numpy"),
+    ("cv2", "opencv-contrib-python"),
+    ("paddle", "paddlepaddle"),
+    ("paddleocr", "paddleocr"),
+]
 
 
 def check_and_install_deps():
-    """Install the pinned dependencies, but only if they are not already satisfied."""
+    """Ensure all required dependencies are installed and importable."""
     print("[*] Checking dependencies ...")
-    if not REQUIREMENTS_FILE.exists():
-        print(f"[!] No requirements file at {REQUIREMENTS_FILE}.")
-        sys.exit(1)
+    missing_packages = []
+    for mod_name, pkg_name in CORE_MODULES:
+        try:
+            __import__(mod_name)
+        except ImportError:
+            missing_packages.append(pkg_name)
 
-    pins = _pinned_requirements()
-    problems = _unsatisfied(pins)
-    if not problems:
-        print(f"[+] All {len(pins)} pinned dependencies already satisfied.")
+    if not missing_packages:
+        print("[+] All core dependencies satisfied.")
         return
 
-    print(f"[*] {len(problems)} of {len(pins)} dependencies need installing:")
-    for problem in problems:
-        print(f"      - {problem}")
-    print(f"[*] Installing from {REQUIREMENTS_FILE} (a few minutes on a fresh venv) ...")
-    cmd = [str(VENV_PYTHON), "-m", "pip", "install", "-r", str(REQUIREMENTS_FILE)]
+    print(f"[*] Installing {len(missing_packages)} missing packages: {', '.join(missing_packages)} ...")
+    cmd = [str(VENV_PYTHON), "-m", "pip", "install"] + missing_packages
     subprocess.run(cmd, check=True)
-
-    remaining = _unsatisfied(pins)
-    if remaining:
-        # pip exited 0 but the tree still does not match -- a resolver backtrack
-        # or a conflicting preinstalled package. Say so rather than booting into
-        # a mismatched environment.
-        print("[!] pip finished but these are still unsatisfied:")
-        for problem in remaining:
-            print(f"      - {problem}")
-        sys.exit(1)
     print("[+] Packages installed successfully.")
 
 
