@@ -40,6 +40,8 @@ else:
 REQUIREMENTS_FILE = BACKEND_DIR / "requirements.txt"
 
 
+YOLO11_ONNX_PATH = MODELS_DIR / "yolo11n.onnx"
+# Fallback URLs
 YOLO_WEIGHTS_URL = "https://github.com/AlexeyAB/darknet/releases/download/yolov4/yolov4-tiny.weights"
 YOLO_WEIGHTS_PATH = MODELS_DIR / "yolov4-tiny.weights"
 YOLO_CFG_URL = "https://raw.githubusercontent.com/AlexeyAB/darknet/master/cfg/yolov4-tiny.cfg"
@@ -150,16 +152,20 @@ def check_and_install_deps():
 
 
 def check_and_download_models():
-    """Ensure YOLOv4-tiny weights and config exist."""
+    """Ensure YOLO11n ONNX or fallback YOLOv4-tiny weights exist."""
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
+    if YOLO11_ONNX_PATH.exists() and YOLO11_ONNX_PATH.stat().st_size > 1000000:
+        print(f"[+] YOLO11n ONNX model ready ({YOLO11_ONNX_PATH.name}).")
+        return
+
     if not YOLO_CFG_PATH.exists():
-        print(f"[*] Downloading YOLOv4-tiny config ...")
+        print(f"[*] Downloading YOLO config ...")
         urllib.request.urlretrieve(YOLO_CFG_URL, YOLO_CFG_PATH)
         print(f"[+] Saved: {YOLO_CFG_PATH}")
 
     if not YOLO_WEIGHTS_PATH.exists() or YOLO_WEIGHTS_PATH.stat().st_size < 1000000:
-        print(f"[*] Downloading YOLOv4-tiny weights (~24 MB) ...")
+        print(f"[*] Downloading YOLO fallback weights (~24 MB) ...")
         urllib.request.urlretrieve(YOLO_WEIGHTS_URL, YOLO_WEIGHTS_PATH)
         print(f"[+] Downloaded: {YOLO_WEIGHTS_PATH}")
     else:

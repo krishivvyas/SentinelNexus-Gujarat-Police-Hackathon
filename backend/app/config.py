@@ -68,6 +68,10 @@ class Settings(BaseSettings):
     # default; "high" only makes sense with plenty of cores. Set SENTINEL_PROFILE.
     profile: str = Field(default="balanced", validation_alias="SENTINEL_PROFILE")
 
+    # Detector model
+    detector_model: str = Field(default="yolo11n.onnx", validation_alias="SENTINEL_DETECTOR_MODEL")
+    detector_input_size: int = 640
+
     # Pipeline tuning. Defaults suit "balanced" and are overridden in apply_profile().
     sample_interval_ms: int = 400          # PTS spacing between processed frames
     max_concurrent_streams: int = 4        # each client gets its own stream copy

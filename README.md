@@ -141,11 +141,10 @@ python -m venv .venv-clean
 # ./.venv-clean/bin/pip install -r backend/requirements.txt
 ```
 
-Download the detector weights (~24 MB, open source; loaded by OpenCV's DNN module):
+The project uses **YOLO11n ONNX** (~10.2 MB, loaded natively by OpenCV's DNN module on CPU with zero GPU/PyTorch dependencies). If running via `python run.py`, the model is prepared automatically. For manual setup:
 
 ```bash
-curl -L -o models/yolov4-tiny.weights https://github.com/AlexeyAB/darknet/releases/download/yolov4/yolov4-tiny.weights
-curl -L -o models/yolov4-tiny.cfg https://raw.githubusercontent.com/AlexeyAB/darknet/master/cfg/yolov4-tiny.cfg
+# Models are stored in models/ (yolo11n.onnx)
 ```
 
 ### Build the camera registry

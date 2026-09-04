@@ -1,12 +1,11 @@
-"""Vehicle detection on OpenCV's DNN module.
+"""Vehicle detection on OpenCV's DNN module (YOLO11n ONNX / YOLOv4-tiny).
 
-Inference runs entirely inside OpenCV (``cv2.dnn``). There is no PyTorch,
-TensorFlow or ultralytics dependency -- the model is a weights file that
-``cv2.dnn.readNetFromDarknet`` loads, and OpenCV does the forward pass on CPU.
+Inference runs entirely inside OpenCV (``cv2.dnn``) on CPU. There is no runtime
+PyTorch, TensorFlow or GPU dependency -- the model is an ONNX weights file that
+``cv2.dnn.readNetFromONNX`` loads, and OpenCV does the forward pass on CPU.
 
-Measured: ~160 ms per 1920x1080 frame on a CPU-only machine at 416x416 input.
-Frames are downscaled to the profile's inference width before the forward pass
-and boxes are mapped back to full-resolution coordinates.
+Default: YOLO11n ONNX (~10.2 MB, 640x640 input, anchor-free, high accuracy).
+Fallback: YOLOv4-tiny Darknet (~24 MB).
 """
 from __future__ import annotations
 
@@ -22,8 +21,9 @@ from ..config import MODELS_DIR, settings
 
 log = logging.getLogger("sentinel.detect")
 
-CFG = MODELS_DIR / "yolov4-tiny.cfg"
-WEIGHTS = MODELS_DIR / "yolov4-tiny.weights"
+YOLO11_ONNX = MODELS_DIR / "yolo11n.onnx"
+DARKNET_CFG = MODELS_DIR / "yolov4-tiny.cfg"
+DARKNET_WEIGHTS = MODELS_DIR / "yolov4-tiny.weights"
 
 # COCO ids we care about. "bicycle" is kept because two-wheelers dominate this
 # traffic and are frequently confused with motorcycles at night.
@@ -54,12 +54,6 @@ AUTO_ASPECT_LOW, AUTO_ASPECT_HIGH = 0.65, 1.45
 #: two-wheeler misread as one would lose a real distinction.
 AUTO_CANDIDATE_LABELS = frozenset({"car", "truck", "vehicle"})
 PERSON_CLASS = 0
-
-# Vehicle colour is deliberately not derived. This grid records overwhelmingly
-# at night, where sodium and LED street lighting plus headlight bloom drive the
-# apparent hue more than the paint does, so a named colour describes the
-# illuminant. On a record an operator may act on, a confident wrong colour is
-# worse than no colour, so none is produced, stored or displayed.
 
 
 @dataclass(slots=True)
@@ -93,25 +87,14 @@ class Detection:
 
 
 def _body_patch(crop: np.ndarray) -> np.ndarray:
-    """The body-panel band of a vehicle crop, used by the auto-rickshaw test.
-
-    Deliberately below the vertical centre: on anything larger than a car the
-    middle of the box is glass rather than bodywork. Panels sit in the lower
-    half, inset horizontally to avoid the road and background either side.
-    """
+    """The body-panel band of a vehicle crop, used by the auto-rickshaw test."""
     h, w = crop.shape[:2]
     patch = crop[int(h * 0.45):int(h * 0.90), int(w * 0.15):int(w * 0.85)]
     return patch if patch.size else crop
 
 
 def looks_like_auto_rickshaw(crop: np.ndarray, width: int, height: int) -> bool:
-    """True when a box has the yellow body and squat shape of an auto-rickshaw.
-
-    A heuristic, not a classifier: the detector cannot name autos at all, so this
-    recovers the common case (a lit yellow auto) from whatever COCO class it
-    landed on. It is deliberately conservative -- an unlit auto in shadow stays
-    under its original label rather than risking a wrong one on a police record.
-    """
+    """True when a box has the yellow body and squat shape of an auto-rickshaw."""
     if crop is None or crop.size == 0 or height <= 0:
         return False
     if not AUTO_ASPECT_LOW <= width / height <= AUTO_ASPECT_HIGH:
@@ -119,10 +102,6 @@ def looks_like_auto_rickshaw(crop: np.ndarray, width: int, height: int) -> bool:
 
     hsv = cv2.cvtColor(_body_patch(crop), cv2.COLOR_BGR2HSV)
     hue, sat, val = (hsv[..., i] for i in range(3))
-    # No upper brightness bound: a lit auto's yellow body is genuinely bright,
-    # and excluding bloom-level pixels drops its yellow fraction from 0.14 to
-    # 0.03. Headlight glare is washed out rather than saturated, so the sat>70
-    # floor already keeps it out.
     paint = (sat > 70) & (val > 50)
     if not paint.any():
         return False
@@ -131,49 +110,144 @@ def looks_like_auto_rickshaw(crop: np.ndarray, width: int, height: int) -> bool:
 
 
 @lru_cache(maxsize=1)
-def _model() -> cv2.dnn_DetectionModel:
-    """Load the detector once. Constructed lazily so importing is cheap."""
-    if not CFG.exists() or not WEIGHTS.exists():
-        raise FileNotFoundError(
-            f"detector weights missing: expected {CFG} and {WEIGHTS}. "
-            "See README 'Install' for the download step."
-        )
-    net = cv2.dnn.readNetFromDarknet(str(CFG), str(WEIGHTS))
-    net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
-    net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
+def _model() -> tuple[str, any]:
+    """Load detector network targeting OpenCV DNN on CPU (YOLO11 ONNX / YOLOv4 fallback)."""
+    if YOLO11_ONNX.exists():
+        net = cv2.dnn.readNetFromONNX(str(YOLO11_ONNX))
+        net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
+        net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
+        log.info("detector loaded (YOLO11n ONNX CPU, %s)", YOLO11_ONNX.name)
+        return "onnx_yolo11", net
 
-    model = cv2.dnn_DetectionModel(net)
-    size = int(settings.inference_width)
-    # Darknet expects a multiple of 32.
-    size = max(320, (size // 32) * 32)
-    model.setInputParams(size=(size, size), scale=1 / 255.0, swapRB=True)
-    log.info("detector loaded (OpenCV DNN, %dx%d input)", size, size)
-    return model
+    if DARKNET_CFG.exists() and DARKNET_WEIGHTS.exists():
+        net = cv2.dnn.readNetFromDarknet(str(DARKNET_CFG), str(DARKNET_WEIGHTS))
+        net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
+        net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
+        model = cv2.dnn_DetectionModel(net)
+        size = int(settings.inference_width)
+        size = max(320, (size // 32) * 32)
+        model.setInputParams(size=(size, size), scale=1 / 255.0, swapRB=True)
+        log.info("detector loaded (YOLOv4-tiny Darknet fallback, %dx%d)", size, size)
+        return "darknet", model
+
+    raise FileNotFoundError(
+        f"detector weights missing: expected {YOLO11_ONNX} or ({DARKNET_CFG} and {DARKNET_WEIGHTS}). "
+        "Run python run.py to download model weights automatically."
+    )
+
+
+def _detector_backend() -> tuple[str, any]:
+    """Alias for _model()."""
+    return _model()
 
 
 class VehicleDetector:
     """Detects vehicles in a frame and describes them."""
 
-    def __init__(self, conf_threshold: float = 0.3, nms_threshold: float = 0.45,
+    def __init__(self, conf_threshold: float = 0.25, nms_threshold: float = 0.45,
                  min_area_ratio: float = 0.00015) -> None:
         self.conf_threshold = conf_threshold
         self.nms_threshold = nms_threshold
-        # Drop specks: anything smaller than this fraction of the frame carries
-        # no usable plate information.
         self.min_area_ratio = min_area_ratio
+        self.target_cids = list(VEHICLE_CLASSES.keys())
 
     def detect(self, frame: np.ndarray) -> list[Detection]:
         """Detect and label vehicles in one frame."""
         if frame is None or frame.size == 0:
             return []
 
-        model = _model()
+        backend_type, net = _detector_backend()
+
+        if backend_type == "onnx_yolo11":
+            return self._detect_yolo11(frame, net)
+        else:
+            return self._detect_darknet(frame, net)
+
+    def _detect_yolo11(self, frame: np.ndarray, net: cv2.dnn.Net) -> list[Detection]:
+        """YOLO11 ONNX inference and output decoding."""
+        h_orig, w_orig = frame.shape[:2]
+        input_size = 640
+
+        blob = cv2.dnn.blobFromImage(frame, 1 / 255.0, (input_size, input_size), swapRB=True, crop=False)
+        net.setInput(blob)
+        try:
+            output = net.forward()
+        except cv2.error as exc:
+            log.warning("YOLO11 inference failed: %s", exc)
+            return []
+
+        # YOLO11 ONNX output shape is (1, 84, N) -> transpose to (N, 84)
+        if len(output.shape) != 3 or output.shape[1] < 4:
+            return []
+
+        preds = output[0].T
+        boxes_raw = preds[:, :4]
+        scores_raw = preds[:, 4:]
+
+        # Filter target vehicle classes
+        target_scores = scores_raw[:, self.target_cids]
+        max_idx = np.argmax(target_scores, axis=1)
+        max_scores = target_scores[np.arange(len(preds)), max_idx]
+        matched_cids = np.array(self.target_cids)[max_idx]
+
+        mask = max_scores >= self.conf_threshold
+        if not mask.any():
+            return []
+
+        kept_boxes_raw = boxes_raw[mask]
+        kept_scores = max_scores[mask]
+        kept_cids = matched_cids[mask]
+
+        # Rescale boxes to original frame dimensions
+        x_scale = w_orig / float(input_size)
+        y_scale = h_orig / float(input_size)
+
+        candidate_boxes = []
+        for (cx, cy, w, h) in kept_boxes_raw:
+            x = int((cx - w / 2.0) * x_scale)
+            y = int((cy - h / 2.0) * y_scale)
+            bw = int(w * x_scale)
+            bh = int(h * y_scale)
+            candidate_boxes.append([x, y, bw, bh])
+
+        indices = cv2.dnn.NMSBoxes(candidate_boxes, kept_scores.tolist(), self.conf_threshold, self.nms_threshold)
+        if len(indices) == 0:
+            return []
+
+        frame_area = h_orig * w_orig
+        results: list[Detection] = []
+
+        for idx in indices:
+            i = idx if isinstance(idx, (int, np.integer)) else idx[0]
+            box = candidate_boxes[i]
+            x, y, w, h = box
+            if w <= 0 or h <= 0 or (w * h) / frame_area < self.min_area_ratio:
+                continue
+
+            cid = int(kept_cids[i])
+            label = VEHICLE_CLASSES.get(cid, "vehicle")
+            conf = float(kept_scores[i])
+
+            det = Detection(x=x, y=y, w=w, h=h, label=label, confidence=conf)
+            crop = det.crop(frame)
+
+            # Auto-rickshaw livery recovery
+            if label in AUTO_CANDIDATE_LABELS and looks_like_auto_rickshaw(crop, w, h):
+                det.label = "auto-rickshaw"
+
+            results.append(det)
+
+        results.sort(key=lambda d: d.area, reverse=True)
+        return results
+
+    def _detect_darknet(self, frame: np.ndarray, model: cv2.dnn_DetectionModel) -> list[Detection]:
+        """Darknet fallback inference."""
         try:
             class_ids, confidences, boxes = model.detect(
                 frame, self.conf_threshold, self.nms_threshold
             )
         except cv2.error as exc:
-            log.warning("detection failed: %s", exc)
+            log.warning("Darknet detection failed: %s", exc)
             return []
 
         if len(class_ids) == 0:
@@ -195,15 +269,11 @@ class VehicleDetector:
             det = Detection(x=x, y=y, w=w, h=h, label=label, confidence=float(conf))
             crop = det.crop(frame)
 
-            # Autos are not a COCO class, so recover them from whatever they
-            # were labelled. Only the classes an auto is actually mistaken for
-            # are considered -- a bus or a two-wheeler is never reconsidered.
             if label in AUTO_CANDIDATE_LABELS and looks_like_auto_rickshaw(crop, w, h):
                 det.label = "auto-rickshaw"
 
             results.append(det)
 
-        # Largest first: the nearest vehicle is the one most likely to yield a plate.
         results.sort(key=lambda d: d.area, reverse=True)
         return results
 
