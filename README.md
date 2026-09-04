@@ -45,36 +45,26 @@ cd backend
 Open <http://localhost:8000>. Demo accounts: `admin` / `operator` / `analyst`,
 password `sentinel-<role>`.
 
+### Or use the One-Click Runner (`run.py`)
+
+Handles virtualenv activation, dependencies, AI weights, database seeding, and server launching in one command:
+
+```bash
+python run.py
+```
+*(or `py run.py` on Windows)*
+
 ---
 
 ## What we learned from the feed
 
 These findings shaped the architecture and are worth reading before changing anything.
 
-**RTSP works unauthenticated; HLS does not.** `rtsp://103.250.160.189:8554/stream/camNN`
-is directly reachable. The HLS endpoint and `/api/ingest` both redirect to `/auth/login`.
-RTSP is the primary transport; HLS is the fallback for networks where 8554 is blocked.
-
-**Reported frame rate is unusable.** CAM-06 reports 90000 fps and CAM-30 reports 200.
-Nothing in this codebase derives timing from `CAP_PROP_FPS` or from frame arrival time —
-all timing comes from the decoder PTS and the burned-in overlay clock.
-
-**Every frame carries a wall-clock overlay and a site name.** These are replayed
-recordings, so content time has nothing to do with decode time. The overlay clock is the
-authoritative event timestamp, and the site labels are genuine Ahmedabad locations
-(Chimanbhai Bridge, Janpath, ONGC Office, Visat Teen Rasta, CN Vidyalaya, Rambaugh).
-
-**The cameras are not one synchronised network.** Overlay clocks span at least five
-recording dates. A vehicle can only be traced across cameras whose recordings overlap in
-time, so cameras are grouped into *time clusters*. The primary cluster —
-**CAM-01, 02, 03, 04, 05, 09, 12, 13, 14** — shares a window and is the real cross-camera
-tracking network. AI camera selection scores plate readability **and** cluster membership.
-
-**Plate readability is the defining risk.** These are wide-angle night overview PTZ
-cameras, not dedicated ANPR cameras; plates run 20–40 px with motion blur and headlight
-bloom. The mitigation is camera triage, plate-recovery preprocessing with multi-frame
-voting, attribute-based sightings that work without a readable plate, and a two-track
-demonstration. Detections are never fabricated — if a plate cannot be read, we say so.
+- **RTSP works unauthenticated; HLS does not.** `rtsp://103.250.160.189:8554/stream/camNN` is directly reachable. The HLS endpoint and `/api/ingest` both redirect to `/auth/login`. RTSP is the primary transport; HLS is the fallback for networks where 8554 is blocked.
+- **Reported frame rate is unusable.** CAM-06 reports 90,000 fps and CAM-30 reports 200. Nothing in this codebase derives timing from `CAP_PROP_FPS` or from frame arrival time — all timing comes from the decoder PTS and the burned-in overlay clock.
+- **Every frame carries a wall-clock overlay and a site name.** These are replayed recordings, so content time has nothing to do with decode time. The overlay clock is the authoritative event timestamp, and the site labels are genuine Ahmedabad locations (Chimanbhai Bridge, Janpath, ONGC Office, Visat Teen Rasta, CN Vidyalaya, Rambaugh).
+- **The cameras are not one synchronised network.** Overlay clocks span at least five recording dates. A vehicle can only be traced across cameras whose recordings overlap in time, so cameras are grouped into *time clusters*. The primary cluster — **CAM-01, 02, 03, 04, 05, 09, 12, 13, 14** — shares a window and is the real cross-camera tracking network. AI camera selection scores plate readability **and** cluster membership.
+- **Plate readability is the defining risk.** These are wide-angle night overview PTZ cameras, not dedicated ANPR cameras; plates run 20–40 px with motion blur and headlight bloom. The mitigation is camera triage, plate-recovery preprocessing with multi-frame voting, attribute-based sightings that work without a readable plate, and a two-track demonstration. Detections are never fabricated — if a plate cannot be read, we say so.
 
 ---
 
@@ -122,18 +112,6 @@ demonstration. Detections are never fabricated — if a plate cannot be read, we
 
 Every connector converts its source into the same `CameraDescriptor`, so nothing above
 the connector layer knows which protocol a camera speaks.
-
----
-
-## What we learned from the feed
-
-These findings shaped the architecture and are worth reading before changing anything.
-
-- **RTSP works unauthenticated; HLS does not.** `rtsp://103.250.160.189:8554/stream/camNN` is directly reachable. The HLS endpoint and `/api/ingest` both redirect to `/auth/login`. RTSP is the primary transport; HLS is the fallback for networks where 8554 is blocked.
-- **Reported frame rate is unusable.** CAM-06 reports 90,000 fps and CAM-30 reports 200. Nothing in this codebase derives timing from `CAP_PROP_FPS` or from frame arrival time — all timing comes from the decoder PTS and the burned-in overlay clock.
-- **Every frame carries a wall-clock overlay and a site name.** These are replayed recordings, so content time has nothing to do with decode time. The overlay clock is the authoritative event timestamp, and the site labels are genuine Ahmedabad locations (Chimanbhai Bridge, Janpath, ONGC Office, Visat Teen Rasta, CN Vidyalaya, Rambaugh).
-- **The cameras are not one synchronised network.** Overlay clocks span at least five recording dates. A vehicle can only be traced across cameras whose recordings overlap in time, so cameras are grouped into *time clusters*. The primary cluster — **CAM-01, 02, 03, 04, 05, 09, 12, 13, 14** — shares a window and is the real cross-camera tracking network.
-- **Plate readability is the defining risk.** These are wide-angle night overview PTZ cameras, not dedicated ANPR cameras; plates run 20–40 px with motion blur and headlight bloom. The mitigation is camera triage, plate-recovery preprocessing with multi-frame voting, attribute-based sightings that work without a readable plate, and a two-track demonstration. Detections are never fabricated — if a plate cannot be read, we say so.
 
 ---
 
@@ -367,6 +345,7 @@ sentinal/
 ├── models/                            # detector weights                  (not committed)
 ├── .gitignore
 ├── implementation.md                  # full plan, measurements, daily schedule
+├── run.py                             # one-click launcher & environment orchestrator
 └── README.md
 ```
 
