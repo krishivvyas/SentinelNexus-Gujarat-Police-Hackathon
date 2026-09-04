@@ -17,6 +17,20 @@ from dataclasses import dataclass, field
 from .detect import Detection
 from .ocr import PlateVoter
 
+#: A track that is detected this many times while never moving is scenery, not a
+#: vehicle. Toll gantries, booth cabins, barrier posts and roadside furniture all
+#: land on a COCO class often enough to be detected every frame -- on CAM-12 the
+#: booth cabin reads as "bus" at 0.52 -- and each one otherwise becomes a
+#: sighting. At the default 400 ms sampling this is ~16 s of continuous
+#: detection.
+STATIC_MIN_HITS = 40
+#: ...and never straying further than this from where it was first seen. The test
+#: is against the furthest the box ever got, not first-versus-last, so a vehicle
+#: that stops and later drives away is never mistaken for scenery. What it does
+#: suppress is a vehicle parked for the whole time it is visible -- which is not
+#: passing traffic, and would otherwise re-report the same parked car all day.
+STATIC_MAX_DRIFT_PX = 8.0
+
 
 def iou(a: tuple[int, int, int, int], b: tuple[int, int, int, int]) -> float:
     ax, ay, aw, ah = a
@@ -47,6 +61,7 @@ class Track:
     best_confidence: float = 0.0
     label_votes: dict[str, int] = field(default_factory=dict)
     start_centre: tuple[float, float] | None = None
+    max_drift_px: float = 0.0              # furthest the centre ever got from start
     reported: bool = False
 
     def update(self, detection: Detection, pts_ms: float, event_ts=None) -> None:
@@ -59,6 +74,10 @@ class Track:
         self.hits += 1
         self.misses = 0
         self.label_votes[detection.label] = self.label_votes.get(detection.label, 0) + 1
+        if self.start_centre is not None:
+            cx, cy = self.centre
+            drift = math.hypot(cx - self.start_centre[0], cy - self.start_centre[1])
+            self.max_drift_px = max(self.max_drift_px, drift)
 
     @property
     def centre(self) -> tuple[float, float]:
@@ -69,6 +88,16 @@ class Track:
     def label(self) -> str:
         return max(self.label_votes, key=self.label_votes.get) if self.label_votes \
             else self.detection.label
+
+    @property
+    def is_static_scenery(self) -> bool:
+        """True when this track is a fixed part of the scene rather than a vehicle.
+
+        Detection runs on COCO-trained weights, so roadside structure lands on a
+        vehicle class whenever it happens to look like one. Structure is
+        distinguished from traffic by the one thing it never does: move.
+        """
+        return self.hits >= STATIC_MIN_HITS and self.max_drift_px <= STATIC_MAX_DRIFT_PX
 
     @property
     def direction(self) -> str:

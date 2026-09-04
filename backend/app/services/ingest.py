@@ -84,6 +84,7 @@ class CameraIngest:
         self.sightings_written = 0
         self.frames_processed = 0
         self.plates_read = 0
+        self.scenery_suppressed = 0
         self._overlay_ts: datetime | None = None
         self._overlay_pts: float | None = None
 
@@ -111,7 +112,20 @@ class CameraIngest:
     # -------------------------------------------------------------- persistence
 
     def _write_sighting(self, track: Track) -> None:
-        """Persist one finished track as a sighting, and evaluate the watchlist."""
+        """Persist one finished track as a sighting, and evaluate the watchlist.
+
+        Fixed scene structure is dropped rather than recorded. The detector runs
+        on COCO weights, so a toll gantry, a booth cabin or a barrier post lands
+        on a vehicle class often enough to be detected every frame; on a cluttered
+        forecourt that is most of what gets detected. A sighting is a claim that a
+        vehicle passed, and structure never passed anything.
+        """
+        if track.is_static_scenery:
+            self.scenery_suppressed += 1
+            log.debug("%s: track %d suppressed as scenery (%d hits, %.1f px drift)",
+                      self.camera_id, track.track_id, track.hits, track.max_drift_px)
+            return
+
         read, frames_voted = track.voter.consensus()
         event_ts = track.last_event_ts or track.first_event_ts
 
@@ -194,6 +208,9 @@ class CameraIngest:
                         (t for t in self.tracker.tracks
                          if t.detection.w >= MIN_VEHICLE_WIDTH_FOR_ANPR
                          and t.voter.total_reads < MAX_VOTES_PER_TRACK
+                         # Structure never yields an accepted read, so total_reads
+                         # stays 0 and it would otherwise be re-OCR'd forever.
+                         and not t.is_static_scenery
                          and (t.hits % ANPR_RETRY_EVERY) == 1
                          # Exclude boxes straying into the overlay bands.
                          and t.detection.y >= top_band
@@ -219,9 +236,11 @@ class CameraIngest:
         finally:
             for track in self.tracker.flush():
                 self._write_sighting(track)
-            log.info("%s: ingest stopped (%d frames, %d sightings, %d plates)",
+            log.info("%s: ingest stopped (%d frames, %d sightings, %d plates, "
+                     "%d scenery suppressed)",
                      self.camera_id, self.frames_processed,
-                     self.sightings_written, self.plates_read)
+                     self.sightings_written, self.plates_read,
+                     self.scenery_suppressed)
 
     def stop(self) -> None:
         self.worker.stop()
@@ -288,6 +307,7 @@ class IngestManager:
                 "frames_processed": ing.frames_processed,
                 "sightings": ing.sightings_written,
                 "plates_read": ing.plates_read,
+                "scenery_suppressed": ing.scenery_suppressed,
                 "reconnects": max(0, ing.worker.reconnects - 1),
                 "discontinuities": ing.worker.discontinuities,
             }

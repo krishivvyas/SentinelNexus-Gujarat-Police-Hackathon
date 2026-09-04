@@ -136,6 +136,39 @@ def _region() -> str:
     return (settings.plate_region or "IN").upper()
 
 
+def _text_pieces(ocr, image: np.ndarray) -> list[tuple[str, float]]:
+    """Every text fragment in one plate crop, as ``(text, confidence)``.
+
+    Two passes, because PaddleOCR's text *detector* is tuned for finding text
+    somewhere in a scene, not for an image that is already nothing but a plate.
+    On a small crop it routinely returns no box at all, and recognition then
+    never runs -- measured on this grid, detection+recognition produced text on
+    0 of 62 plate crops while recognition alone produced text on all 62.
+
+    So: try detection+recognition first, since it correctly splits a two-row
+    plate into its state and number rows. When it finds nothing, fall back to
+    running recognition over the whole crop as a single text line, which is
+    exactly what the crop is. The fallback is deliberately unguarded about
+    quality -- on a plate too small to read it returns single-character noise at
+    0.1-0.5 confidence, and the confidence floor and layout validation in
+    read_plate() reject that, as they are meant to.
+    """
+    try:
+        result = ocr.ocr(image, cls=False)
+    except Exception:
+        result = None
+    if result and result[0]:
+        return [(entry[1][0], float(entry[1][1])) for entry in result[0]]
+
+    try:
+        result = ocr.ocr(image, det=False, cls=False)
+    except Exception:
+        return []
+    if not result or not result[0]:
+        return []
+    return [(text, float(conf)) for text, conf in result[0] if text]
+
+
 def read_plate(variants: list[np.ndarray], *, min_confidence: float = 0.55,
                require_valid: bool = True, region: str | None = None) -> PlateRead:
     """OCR several restorations of one plate and keep the best read.
@@ -156,15 +189,11 @@ def read_plate(variants: list[np.ndarray], *, min_confidence: float = 0.55,
     for image in variants:
         if image is None or image.size == 0:
             continue
-        try:
-            result = ocr.ocr(image, cls=False)
-        except Exception:
-            continue
-        if not result or not result[0]:
+        pieces = _text_pieces(ocr, image)
+        if not pieces:
             continue
 
         # A plate may be detected as two boxes (state row + number row).
-        pieces = [(entry[1][0], float(entry[1][1])) for entry in result[0]]
         joined = "".join(p for p, _ in pieces)
         mean_conf = sum(c for _, c in pieces) / len(pieces)
 
