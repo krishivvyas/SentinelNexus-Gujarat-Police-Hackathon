@@ -4,7 +4,7 @@ A unified CCTV interoperability and intelligence platform for statewide surveill
 networks — camera federation, live video processing, ANPR, cross-camera vehicle
 tracking, watchlist alerting and GIS command and control.
 
-Built against the Sentinel government CCTV grid: **30 live Ahmedabad ITMS traffic
+Built against the Sentinel government CCTV grid: **30 live Ahmedabad ITMS traffic system
 cameras**, mixed H.264/H.265, resolutions from 960×576 to 2560×1440.
 
 > **Design principle:** existing departmental systems keep running. Sentinel Nexus adds a
