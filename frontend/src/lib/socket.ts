@@ -1,6 +1,4 @@
-/**
- * Sentinel Nexus WebSocket Client for Real-time ANPR & Hotlist Alerts
- */
+import { api } from './api';
 
 export interface LiveAlert {
   id: string;
@@ -26,16 +24,18 @@ class SocketService {
   private reconnectTimer: NodeJS.Timeout | null = null;
   private isExplicitlyClosed = false;
 
-  connect() {
+  async connect() {
     if (typeof window === 'undefined') return;
     if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
       return;
     }
 
+    await api.ensureAuth();
+
     this.isExplicitlyClosed = false;
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.port === '3000' ? `${window.location.hostname}:8000` : window.location.host;
-    const token = localStorage.getItem('sentinel_token') || '';
+    const token = api.getToken() || '';
     const url = `${protocol}//${host}/api/ws/alerts?token=${encodeURIComponent(token)}`;
 
     try {

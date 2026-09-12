@@ -1,1 +1,12 @@
-{}
+{
+  "/_not-found/page": "app/_not-found/page.js",
+  "/audit_page/page": "app/audit_page/page.js",
+  "/cameras_page/page": "app/cameras_page/page.js",
+  "/events_page/page": "app/events_page/page.js",
+  "/health_page/page": "app/health_page/page.js",
+  "/login_page/page": "app/login_page/page.js",
+  "/page": "app/page.js",
+  "/trace_page/page": "app/trace_page/page.js",
+  "/wall_page/page": "app/wall_page/page.js",
+  "/watchlist_page/page": "app/watchlist_page/page.js"
+}

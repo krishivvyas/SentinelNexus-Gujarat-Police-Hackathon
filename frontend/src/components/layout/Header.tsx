@@ -23,13 +23,13 @@ import { socket } from '@/lib/socket';
 
 const NAV_ITEMS = [
   { href: '/', label: 'Map Grid', icon: MapPin },
-  { href: '/wall', label: 'Video Wall', icon: LayoutGrid },
-  { href: '/events', label: 'ANPR Stream', icon: ScanLine },
-  { href: '/trace', label: 'Vehicle Trace', icon: Route },
-  { href: '/watchlist', label: 'Watchlist', icon: Bell },
-  { href: '/cameras', label: 'Registry', icon: Camera },
-  { href: '/health', label: 'Health', icon: Activity },
-  { href: '/audit', label: 'Audit', icon: FileText },
+  { href: '/wall_page', label: 'Video Wall', icon: LayoutGrid },
+  { href: '/events_page', label: 'ANPR Stream', icon: ScanLine },
+  { href: '/trace_page', label: 'Vehicle Trace', icon: Route },
+  { href: '/watchlist_page', label: 'Watchlist', icon: Bell },
+  { href: '/cameras_page', label: 'Registry', icon: Camera },
+  { href: '/health_page', label: 'Health', icon: Activity },
+  { href: '/audit_page', label: 'Audit', icon: FileText },
 ];
 
 interface HeaderProps {

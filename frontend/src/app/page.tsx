@@ -292,7 +292,7 @@ export default function CommandCentrePage() {
               {/* Actions Footer */}
               <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
                 <Link
-                  href={`/wall?camera=${encodeURIComponent(selectedCamera.camera_id)}`}
+                  href={`/wall_page?camera=${encodeURIComponent(selectedCamera.camera_id)}`}
                   className="flex-1"
                 >
                   <Button variant="primary" size="sm" className="w-full" icon={<Video className="w-3.5 h-3.5" />}>
@@ -300,7 +300,7 @@ export default function CommandCentrePage() {
                   </Button>
                 </Link>
                 <Link
-                  href={`/events?camera=${encodeURIComponent(selectedCamera.camera_id)}`}
+                  href={`/events_page?camera=${encodeURIComponent(selectedCamera.camera_id)}`}
                   className="flex-1"
                 >
                   <Button variant="secondary" size="sm" className="w-full" icon={<Sparkles className="w-3.5 h-3.5" />}>

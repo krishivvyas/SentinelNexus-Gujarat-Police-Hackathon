@@ -40,13 +40,13 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
 
   const quickNav = [
     { label: 'Command Centre Map Grid', href: '/', icon: MapPin, spec: 'GIS' },
-    { label: 'Multi-Camera Video Wall', href: '/wall', icon: LayoutGrid, spec: 'LIVE' },
-    { label: 'Real-time ANPR Sightings', href: '/events', icon: ScanLine, spec: 'OCR' },
-    { label: 'Vehicle Journey Trace', href: '/trace', icon: Route, spec: 'TRACE' },
-    { label: 'Hotlist / Watchlist Targets', href: '/watchlist', icon: Bell, spec: 'HOTLIST' },
-    { label: 'Camera Inventory & Importer', href: '/cameras', icon: Camera, spec: 'REGISTRY' },
-    { label: 'System Health & Diagnostics', href: '/health', icon: Activity, spec: 'METRICS' },
-    { label: 'Audit Trail & Compliance Logs', href: '/audit', icon: FileText, spec: 'LOGS' },
+    { label: 'Multi-Camera Video Wall', href: '/wall_page', icon: LayoutGrid, spec: 'LIVE' },
+    { label: 'Real-time ANPR Sightings', href: '/events_page', icon: ScanLine, spec: 'OCR' },
+    { label: 'Vehicle Journey Trace', href: '/trace_page', icon: Route, spec: 'TRACE' },
+    { label: 'Hotlist / Watchlist Targets', href: '/watchlist_page', icon: Bell, spec: 'HOTLIST' },
+    { label: 'Camera Inventory & Importer', href: '/cameras_page', icon: Camera, spec: 'REGISTRY' },
+    { label: 'System Health & Diagnostics', href: '/health_page', icon: Activity, spec: 'METRICS' },
+    { label: 'Audit Trail & Compliance Logs', href: '/audit_page', icon: FileText, spec: 'LOGS' },
   ];
 
   const filteredNav = quickNav.filter((item) =>

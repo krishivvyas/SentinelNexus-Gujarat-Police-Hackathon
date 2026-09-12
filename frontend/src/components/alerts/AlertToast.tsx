@@ -96,7 +96,7 @@ export function AlertToast() {
               </span>
               <button
                 onClick={() => {
-                  router.push(`/trace?plate=${encodeURIComponent(alert.plate_number)}`);
+                  router.push(`/trace_page?plate=${encodeURIComponent(alert.plate_number)}`);
                   dismiss(alert.id);
                 }}
                 className="inline-flex items-center gap-1 text-xs font-semibold text-[#2563EB] hover:text-[#1D4ED8] transition-colors"
