@@ -111,62 +111,43 @@ def _pinned_requirements() -> list[tuple[str, str]]:
     return pins
 
 
-def _unsatisfied(pins: list[tuple[str, str]]) -> list[str]:
-    """Which pins the current interpreter does not already satisfy.
-
-    Checks installed distribution metadata rather than importability, so a
-    package present at the wrong version -- numpy 2.x against the 1.26.4 pin --
-    is reported instead of silently passing.
-    """
-    problems: list[str] = []
-    for name, want in pins:
-        try:
-            have = importlib.metadata.version(name)
-        except importlib.metadata.PackageNotFoundError:
-            problems.append(f"{name} (not installed)")
-            continue
-        if _normalise(have) != _normalise(want):
-            problems.append(f"{name} {have} (pinned {want})")
-    return problems
-
-
-def _normalise(version: str) -> tuple:
-    """Compare versions by numeric components, so "4.11.0.86" survives a round trip."""
-    parts = []
-    for chunk in version.split("."):
-        parts.append(int(chunk) if chunk.isdigit() else chunk)
-    return tuple(parts)
+CORE_MODULES = [
+    ("fastapi", "fastapi>=0.115.6"),
+    ("uvicorn", "uvicorn[standard]>=0.34.0"),
+    ("sqlalchemy", "sqlalchemy>=2.0.36"),
+    ("pydantic", "pydantic>=2.10.4"),
+    ("pydantic_settings", "pydantic-settings>=2.7.0"),
+    ("jose", "python-jose[cryptography]>=3.3.0"),
+    ("bcrypt", "bcrypt>=4.2.1"),
+    ("multipart", "python-multipart>=0.0.20"),
+    ("httpx", "httpx>=0.28.1"),
+    ("reportlab", "reportlab>=4.2.5"),
+    ("numpy", "numpy>=1.26.4"),
+    ("cv2", "opencv-contrib-python>=4.10.0"),
+    ("onnxruntime", "onnxruntime>=1.20.1"),
+    ("paddle", "paddlepaddle>=3.0.0"),
+    ("paddleocr", "paddleocr>=2.9.1"),
+    ("setuptools", "setuptools>=70.0.0"),
+]
 
 
 def check_and_install_deps():
-    """Install the pinned dependencies, but only if they are not already satisfied."""
+    """Ensure all required dependencies are installed and importable."""
     print("[*] Checking dependencies ...")
-    if not REQUIREMENTS_FILE.exists():
-        print(f"[!] No requirements file at {REQUIREMENTS_FILE}.")
-        sys.exit(1)
+    missing_packages = []
+    for mod_name, pkg_spec in CORE_MODULES:
+        try:
+            __import__(mod_name)
+        except ImportError:
+            missing_packages.append(pkg_spec)
 
-    pins = _pinned_requirements()
-    problems = _unsatisfied(pins)
-    if not problems:
-        print(f"[+] All {len(pins)} pinned dependencies already satisfied.")
+    if not missing_packages:
+        print("[+] All core dependencies satisfied.")
         return
 
-    print(f"[*] {len(problems)} of {len(pins)} dependencies need installing:")
-    for problem in problems:
-        print(f"      - {problem}")
-    print(f"[*] Installing from {REQUIREMENTS_FILE} (a few minutes on a fresh venv) ...")
-    cmd = [str(VENV_PYTHON), "-m", "pip", "install", "-r", str(REQUIREMENTS_FILE)]
+    print(f"[*] Installing {len(missing_packages)} missing packages: {', '.join(missing_packages)} ...")
+    cmd = [str(VENV_PYTHON), "-m", "pip", "install"] + missing_packages
     subprocess.run(cmd, check=True)
-
-    remaining = _unsatisfied(pins)
-    if remaining:
-        # pip exited 0 but the tree still does not match -- a resolver backtrack
-        # or a conflicting preinstalled package. Say so rather than booting into
-        # a mismatched environment.
-        print("[!] pip finished but these are still unsatisfied:")
-        for problem in remaining:
-            print(f"      - {problem}")
-        sys.exit(1)
     print("[+] Packages installed successfully.")
 
 

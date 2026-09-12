@@ -355,6 +355,15 @@ function idleStage(cam) {
       el('div.wcard-play', {}, icon('play', 18)),
       el('div.wcard-idle-text', { text: 'Click to open the feed' })),
     el('div.wcard-still-badge', { text: 'LAST FRAME' }),
+    el('div.wcard-actions', {},
+      el('button.wcard-action.wcard-expand', {
+        title: 'Open in full screen focus view',
+        onclick: (event) => {
+          event.stopPropagation();
+          activateAndFocus(cam.camera_id);
+        },
+      }, icon('expand', 13)),
+    ),
   );
 }
 
@@ -369,10 +378,14 @@ function card(cam) {
     dataset: { camera: id },
     onclick: (event) => {
       // The header carries its own controls; only the stage toggles the feed.
-      if (event.target.closest('button.wcard-action')) return;
+      if (event.target.closest('button.wcard-action') || event.target.closest('button.icon-btn')) return;
       wall.active.has(id) ? deactivate(id) : activate(id);
     },
-    ondblclick: () => { if (wall.active.has(id)) openFocus(id); },
+    ondblclick: (event) => {
+      if (event.target.closest('button.wcard-action') || event.target.closest('button.icon-btn')) return;
+      if (wall.active.has(id)) openFocus(id);
+      else activateAndFocus(id);
+    },
   },
     el('div.wcard-head', {},
       el('span.wdot', { dataset: { status: (cam.status || 'unknown').toLowerCase() } }),
@@ -456,10 +469,22 @@ function activate(id, { quiet = false } = {}) {
     el('div.wcard-live', {},
       el('span.dot.live'), 'LIVE',
       wall.detect ? el('span.wcard-live-sub', { text: 'detections on' }) : null),
-    el('button.wcard-action.wcard-stop', {
-      title: 'Stop this feed',
-      onclick: () => deactivate(id),
-    }, icon('close', 12)),
+    el('div.wcard-actions', {},
+      el('button.wcard-action.wcard-expand', {
+        title: 'Full screen focus view',
+        onclick: (event) => {
+          event.stopPropagation();
+          openFocus(id);
+        },
+      }, icon('expand', 13)),
+      el('button.wcard-action.wcard-stop', {
+        title: 'Stop this feed',
+        onclick: (event) => {
+          event.stopPropagation();
+          deactivate(id);
+        },
+      }, icon('close', 12)),
+    ),
   );
 
   tile.classList.add('live');
@@ -469,6 +494,14 @@ function activate(id, { quiet = false } = {}) {
   if (!quiet && wall.active.size === wall.limit) {
     toast('Wall is full', `All ${wall.limit} stream slots are in use.`, 'info');
   }
+}
+
+/** Open camera in full screen focus mode directly. */
+function activateAndFocus(id) {
+  if (!wall.active.has(id)) {
+    activate(id, { quiet: true });
+  }
+  openFocus(id);
 }
 
 /** Stop one camera's feed and give its slot back.

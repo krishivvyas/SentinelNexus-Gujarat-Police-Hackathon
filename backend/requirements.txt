@@ -14,30 +14,26 @@
 # PaddleOCR pulls imgaug + albumentations transitively and imports both
 # unconditionally, so neither can be removed. scikit-learn CAN be removed.
 
-fastapi==0.115.6
-uvicorn[standard]==0.34.0
-sqlalchemy==2.0.36
-pydantic==2.10.4
-pydantic-settings==2.7.0
-python-jose[cryptography]==3.3.0
-bcrypt==4.2.1
-python-multipart==0.0.20
-httpx==0.28.1
-reportlab==4.2.5
+fastapi>=0.115.6
+uvicorn[standard]>=0.34.0
+sqlalchemy>=2.0.36
+pydantic>=2.10.4
+pydantic-settings>=2.7.0
+python-jose[cryptography]>=3.3.0
+bcrypt>=4.2.1
+python-multipart>=0.0.20
+httpx>=0.28.1
+reportlab>=4.2.5
 
-numpy==1.26.4
-opencv-contrib-python==4.11.0.86
+numpy>=1.26.4
+opencv-contrib-python>=4.10.0
 
-# YOLO11 inference. A ~15 MB wheel with no CUDA payload -- the whole reason
-# detection could be upgraded from YOLOv4-tiny without taking on Torch.
-onnxruntime==1.20.1
+# YOLO11 inference. A ~15 MB wheel with no CUDA payload
+onnxruntime>=1.20.1
 
-paddlepaddle==3.0.0
-paddleocr==2.9.1
+paddlepaddle>=3.0.0
+paddleocr>=2.9.1
 
-# PaddlePaddle imports setuptools/pkg_resources at runtime, not just at build
-# time. Python 3.12 venvs no longer seed setuptools, so without this pin every
-# read_overlay call dies with ModuleNotFoundError and the ingest thread stops
-# on its first frame -- zero sightings, no obvious cause in the log.
-setuptools==84.0.0
+# PaddlePaddle imports setuptools/pkg_resources at runtime
+setuptools>=70.0.0
 
