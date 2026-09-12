@@ -1,0 +1,14 @@
+{
+  "app\\page.tsx -> @/components/map/GisMap": {
+    "id": 6906,
+    "files": [
+      "static/chunks/906.02a0a0d0a1727fb5.js"
+    ]
+  },
+  "components\\map\\GisMap.tsx -> leaflet": {
+    "id": 759,
+    "files": [
+      "static/chunks/d0deef33.bd75b11a952a2d3d.js"
+    ]
+  }
+}
