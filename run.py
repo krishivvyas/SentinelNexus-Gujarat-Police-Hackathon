@@ -229,15 +229,60 @@ def check_and_seed_db():
         print("[+] Database ready.")
 
 
-def open_browser_later():
-    """Wait 2 seconds and open http://localhost:8000 in default browser."""
+FRONTEND_DIR = ROOT_DIR / "frontend"
+
+frontend_process: subprocess.Popen | None = None
+
+
+def start_frontend() -> bool:
+    """Launch Next.js Ultra UI dev server in background if Node/npm are available."""
+    global frontend_process
+    if not FRONTEND_DIR.exists():
+        return False
+
+    import shutil
+    npm_bin = shutil.which("npm") or shutil.which("npm.cmd")
+    if not npm_bin:
+        print("[!] Node.js / npm not found on PATH. Next.js frontend won't auto-launch.")
+        print("    (You can install Node.js v18+ to run the Next.js Ultra UI).")
+        return False
+
+    # Check node_modules
+    if not (FRONTEND_DIR / "node_modules").exists():
+        print("[*] Installing Next.js frontend dependencies (first time only) ...")
+        try:
+            subprocess.run([npm_bin, "install"], cwd=str(FRONTEND_DIR), check=True)
+            print("[+] Frontend dependencies installed.")
+        except Exception as e:
+            print(f"[!] Failed to install frontend dependencies: {e}")
+            return False
+
+    print("[*] Starting Next.js Ultra UI frontend on http://localhost:3000 ...")
+    try:
+        frontend_process = subprocess.Popen(
+            [npm_bin, "run", "dev"],
+            cwd=str(FRONTEND_DIR),
+            shell=sys.platform == "win32",
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        return True
+    except Exception as e:
+        print(f"[!] Could not start Next.js frontend: {e}")
+        return False
+
+
+def open_browser_later(has_frontend: bool = True):
+    """Wait 2.5 seconds and open the Command Centre in default browser."""
     import threading
 
+    target_url = "http://localhost:3000" if has_frontend else "http://localhost:8000"
+
     def _open():
-        time.sleep(2)
-        print("\n[*] Opening Command Centre in your default browser...")
+        time.sleep(2.5)
+        print(f"\n[*] Opening Command Centre ({target_url}) in your default browser...")
         try:
-            webbrowser.open("http://localhost:8000")
+            webbrowser.open(target_url)
         except Exception:
             pass
 
@@ -246,19 +291,23 @@ def open_browser_later():
 
 
 def run_server():
-    """Start uvicorn server."""
+    """Start uvicorn server and Next.js frontend."""
+    has_frontend = start_frontend()
+
     print("\n" + "=" * 68)
     print("  [>] SENTINEL NEXUS IS READY")
-    print("  [>] Web Command Centre : http://localhost:8000")
-    print("  [>] Swagger API Docs   : http://localhost:8000/docs")
+    if has_frontend:
+        print("  [>] Next.js Ultra UI  : http://localhost:3000 (Recommended)")
+    print("  [>] Backend & API     : http://localhost:8000")
+    print("  [>] Swagger API Docs  : http://localhost:8000/docs")
     print("  [>] Credentials:")
     print("      - Admin    : admin    / sentinel-admin")
     print("      - Operator : operator / sentinel-operator")
     print("      - Analyst  : analyst  / sentinel-analyst")
-    print("  [>] Press CTRL + C to stop the server anytime.")
+    print("  [>] Press CTRL + C to stop the entire grid anytime.")
     print("=" * 68 + "\n")
 
-    open_browser_later()
+    open_browser_later(has_frontend)
 
     import uvicorn
     # Add backend directory to sys.path so 'app.main:app' imports work
@@ -266,7 +315,16 @@ def run_server():
         sys.path.insert(0, str(BACKEND_DIR))
 
     os.chdir(str(BACKEND_DIR))
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=False, log_level="info")
+    try:
+        uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=False, log_level="info")
+    finally:
+        if frontend_process and frontend_process.poll() is None:
+            print("\n[*] Stopping Next.js frontend...")
+            frontend_process.terminate()
+            try:
+                frontend_process.wait(timeout=3)
+            except Exception:
+                frontend_process.kill()
 
 
 def main():
