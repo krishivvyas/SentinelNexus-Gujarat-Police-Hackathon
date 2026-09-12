@@ -5,7 +5,7 @@ networks — camera federation, live video processing, ANPR, cross-camera vehicl
 tracking, watchlist alerting and GIS command and control.
 
 Built against the Sentinel government CCTV grid: **30 live Ahmedabad ITMS traffic
-cameras**, mixed H.264/H.265, resolutions from 960×576 to 2560×1440.
+cameras**, mixed H.264/H.265, resolutions from 960×576 to 2560×1440 increased
 
 > **Design principle:** existing departmental systems keep running. Sentinel Nexus adds a
 > common interoperability and intelligence layer on top rather than replacing the
