@@ -574,10 +574,23 @@ function openFocus(id) {
   const host = $('#focus');
 
   const holder = el('div.focus-video');
-  entry.placeholder = el('div.wcard-state', {}, el('div.spinner'),
-    el('div', { style: { marginTop: '10px' }, text: 'Showing full screen' }));
-  entry.tile.querySelector('.wcard-stage').append(entry.placeholder);
-  holder.append(entry.image);
+  
+  const spinner = el('div.wcard-state', {},
+    el('div.spinner'),
+    el('div', { style: { marginTop: '10px' }, text: `Loading full-screen feed for ${id}…` }));
+
+  const focusImg = el('img.focus-live-video', {
+    alt: `Live focus feed from ${id}`,
+    src: api.liveUrl(id, wall.detect),
+    onload: () => spinner.remove(),
+    onerror: () => {
+      fill(spinner,
+        el('div.wcard-state-title', { style: { color: 'var(--warn)' }, text: 'Feed did not open' }),
+        el('div', { style: { marginTop: '6px' }, text: 'Could not connect to live full-screen stream.' }));
+    }
+  });
+
+  holder.append(spinner, focusImg);
 
   fill(host,
     el('div.focus-scrim', { onclick: closeFocus }),
@@ -597,13 +610,13 @@ function openFocus(id) {
 function closeFocus() {
   const host = $('#focus');
   if (host.hidden) return;
-  const entry = wall.active.get(host.dataset.camera);
-  if (entry) {
-    // Hand the still-running <img> back to its tile. Never re-created, so the
-    // stream survives the round trip.
-    entry.placeholder?.remove();
-    entry.tile.querySelector('.wcard-stage')?.prepend(entry.image);
+  
+  const focusImg = host.querySelector('.focus-live-video');
+  if (focusImg) {
+    focusImg.src = '';
+    focusImg.remove();
   }
+
   host.hidden = true;
   fill(host);
   delete host.dataset.camera;

@@ -347,18 +347,49 @@ body.wall-page { overflow: hidden; }
   color: var(--on-video-mute); font-weight: 500; letter-spacing: 0.02em;
 }
 
-.wcard-stop {
+.wcard-actions {
   position: absolute; right: 8px; top: 8px;
-  width: 24px; height: 24px;
+  display: flex; align-items: center; gap: 5px;
+  z-index: 5;
+}
+
+.wcard-actions .wcard-action,
+.wcard-stop,
+.wcard-expand {
+  width: 26px; height: 26px;
   display: grid; place-items: center;
   border: 1px solid var(--on-video-line); border-radius: var(--r-sm);
   background: var(--video-scrim);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   color: var(--on-video-dim);
   cursor: pointer; opacity: 0;
-  transition: opacity var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+  transform: scale(0.92);
+  transition: opacity var(--t-fast) var(--ease),
+              transform var(--t-fast) var(--ease),
+              color var(--t-fast) var(--ease),
+              background var(--t-fast) var(--ease),
+              border-color var(--t-fast) var(--ease);
 }
-.wcard:hover .wcard-stop { opacity: 1; }
-.wcard-stop:hover { color: var(--critical); border-color: rgba(255, 84, 112, 0.4); }
+.wcard:hover .wcard-actions .wcard-action,
+.wcard:focus-within .wcard-actions .wcard-action,
+.wcard:hover .wcard-stop,
+.wcard:hover .wcard-expand {
+  opacity: 1;
+  transform: scale(1);
+}
+.wcard-expand:hover {
+  color: var(--accent);
+  background: var(--surface-hi);
+  border-color: var(--accent-line);
+  transform: scale(1.08);
+}
+.wcard-stop:hover {
+  color: var(--critical);
+  background: rgba(255, 84, 112, 0.15);
+  border-color: rgba(255, 84, 112, 0.4);
+  transform: scale(1.08);
+}
 
 /* ------------------------------------------------------------------ footer */
 
@@ -400,12 +431,24 @@ body.wall-page { overflow: hidden; }
 .focus-head .dot { color: var(--signal); }
 .focus-name { font-weight: 650; }
 .focus-video {
+  position: relative;
   flex: 1;
   display: grid; place-items: center;
   background: var(--video-ground);
   min-height: 0;
+  overflow: hidden;
 }
-.focus-video img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.focus-video img,
+.focus-video .focus-live-video,
+.focus-video .wcard-video {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  display: block;
+  opacity: 1 !important;
+}
 
 /* -------------------------------------------------------------- responsive */
 

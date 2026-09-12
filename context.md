@@ -1,4 +1,4 @@
-# Sentinel Nexus — working context
+ Sentinel Nexus — working context
 
 Running record of what this platform is, what has been verified against the real
 grid, and what changed in each working session. Updated every turn.
