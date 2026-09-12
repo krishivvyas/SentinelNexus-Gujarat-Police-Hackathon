@@ -1,0 +1,348 @@
+/* Sentinel Nexus design tokens.
+ *
+ * **Dark is the default and stays the default.** This runs on a wall in a room
+ * kept dim so operators can read camera feeds, and it runs for entire shifts.
+ * A light surface next to a night-time video tile destroys the adaptation the
+ * operator needs to see the feed. Nothing here follows the operating system
+ * unless somebody asks it to -- an OS that happens to be in light mode is not
+ * evidence about the room the wall is in.
+ *
+ * A light theme exists anyway, because this interface is not only used on the
+ * wall: it is read on a laptop in a lit office, projected in briefings, and
+ * screenshotted into reports. Those are real and they are miserable in a dark
+ * palette. So the theme is an explicit operator choice, stored per browser,
+ * with dark as the value you get if you never make one.
+ *
+ * The palette is built on one rule: colour carries meaning, never decoration.
+ * Greys do the layout. The five signal hues each mean exactly one thing, and
+ * nothing else in the interface is allowed to use them. That rule is what makes
+ * a second theme tractable at all -- the hues are re-mixed for contrast against
+ * a light ground, but not one of them is reassigned.
+ *
+ * Two groups of tokens are deliberately *not* themed, and they are marked
+ * "fixed" below: the ground a video tile is drawn on, and anything that sits
+ * on top of that ground. See the note over --video-ground.
+ */
+
+:root {
+  /* Dark is the default theme, so the bare :root carries it and
+   * [data-theme="light"] overrides. Declaring color-scheme means form
+   * controls, scrollbars and the canvas the browser paints behind the page all
+   * match -- without it a light-mode page keeps a dark scrollbar. */
+  color-scheme: dark;
+
+  /* --- Surfaces ---------------------------------------------------------
+   * Six steps of near-black rather than three. The map is the bottom layer
+   * and everything floats above it, so panels need to separate from each
+   * other by luminance alone -- borders cannot carry that much work without
+   * the whole screen turning into a wireframe.
+   */
+  --bg:            #06080c;
+  --surface:       #0c1017;
+  --surface-2:     #11161f;
+  --surface-3:     #161d28;
+  --surface-hi:    #1d2532;
+  --scrim:         rgba(4, 6, 10, 0.72);
+
+  /* Panels sit over a moving map, so they are translucent with a blur. Solid
+   * panels make the map feel like it is behind a wall; these make it feel like
+   * it is behind glass, which is the point -- the map never stops being the
+   * primary surface. */
+  --glass:         rgba(12, 16, 23, 0.86);
+  --glass-2:       rgba(17, 22, 31, 0.92);
+
+  /* --- Lines ------------------------------------------------------------ */
+  --line:          #1c232e;
+  --line-strong:   #2a3441;
+  --line-focus:    #3d5673;
+
+  /* --- Text -------------------------------------------------------------
+   * Four steps. --text-mute is deliberately quiet: it carries labels and
+   * units, which should be findable when looked for and invisible otherwise.
+   */
+  --text:          #e9eff7;
+  --text-dim:      #a3b3c7;
+  --text-mute:     #6b7d94;
+  --text-faint:    #47566a;
+
+  /* --- Signal hues ------------------------------------------------------
+   * One meaning each, enforced by convention:
+   *   accent   interactive / selected
+   *   signal   live, healthy, confirmed
+   *   warn     approximate, unverified, degraded
+   *   high     elevated severity
+   *   critical alarm, failure, stolen-vehicle hit
+   *   trace    a vehicle's route -- never used for anything else, so a
+   *            purple line on the map always means "this is the journey"
+   */
+  --accent:        #4d9dff;
+  --accent-soft:   rgba(77, 157, 255, 0.14);
+  --accent-line:   rgba(77, 157, 255, 0.42);
+
+  --signal:        #2fd6a0;
+  --signal-soft:   rgba(47, 214, 160, 0.13);
+  --signal-line:   rgba(47, 214, 160, 0.30);
+
+  --warn:          #f0a63c;
+  --warn-soft:     rgba(240, 166, 60, 0.13);
+  --warn-line:     rgba(240, 166, 60, 0.30);
+
+  --high:          #ff8551;
+  --high-soft:     rgba(255, 133, 81, 0.13);
+  --high-line:     rgba(255, 133, 81, 0.30);
+
+  --critical:      #ff5470;
+  --critical-soft: rgba(255, 84, 112, 0.14);
+  --critical-line: rgba(255, 84, 112, 0.32);
+
+  --trace:         #a78bfa;
+  --trace-soft:    rgba(167, 139, 250, 0.15);
+  --trace-line:    rgba(167, 139, 250, 0.30);
+
+  /* Text drawn *on* a filled hue -- a primary button, a count badge. Near-black
+   * under the dark theme's bright hues; white under the light theme's dark
+   * ones. Tokenised because the pair flips together and getting one of them
+   * wrong is an unreadable button, not a slightly-off one. */
+  --on-accent:     #04121f;
+  --on-critical:   #12070a;
+  --on-trace:      #140b28;
+
+  /* --- Type -------------------------------------------------------------
+   * Inter where it loads, the platform UI face otherwise. The fallback stack
+   * is not a formality: this is designed to run on an isolated operator
+   * network where fonts.googleapis.com is unreachable, and it has to look
+   * deliberate when that happens.
+   *
+   * Everything numeric uses --font-mono with tabular figures. A plate, a
+   * timestamp and a confidence are all things an operator compares down a
+   * column, and proportional digits make that scan impossible.
+   */
+  --font-sans: "Inter", ui-sans-serif, -apple-system, BlinkMacSystemFont,
+               "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono",
+               Consolas, "Liberation Mono", monospace;
+
+  --fs-micro:  10px;
+  --fs-tiny:   11px;
+  --fs-small:  12px;
+  --fs-body:   13px;
+  --fs-mid:    14px;
+  --fs-lg:     16px;
+  --fs-xl:     20px;
+  --fs-display: 30px;
+
+  --tracking-caps: 0.09em;
+
+  /* --- Space ------------------------------------------------------------
+   * A 4px base. Panels use 14-18px padding; anything denser than that stops
+   * being readable at arm's length from a wall display.
+   */
+  --s1: 4px;  --s2: 8px;  --s3: 12px; --s4: 16px;
+  --s5: 20px; --s6: 24px; --s7: 32px; --s8: 44px;
+
+  /* --- Radius ----------------------------------------------------------- */
+  --r-sm: 5px;
+  --r:    8px;
+  --r-lg: 12px;
+  --r-xl: 16px;
+  --r-pill: 999px;
+
+  /* --- Elevation --------------------------------------------------------
+   * Shadows are near-black rather than tinted. Over a dark map a coloured
+   * shadow reads as a glow, which competes with the signal hues.
+   */
+  --sh-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --sh:    0 4px 16px rgba(0, 0, 0, 0.45);
+  --sh-lg: 0 12px 40px rgba(0, 0, 0, 0.55);
+  --sh-xl: 0 24px 70px rgba(0, 0, 0, 0.65);
+
+  --blur: saturate(150%) blur(18px);
+
+  /* --- Motion -----------------------------------------------------------
+   * Fast and short. This is an operational tool: animation exists to show
+   * where a thing came from, never to be admired.
+   */
+  --ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --t-fast: 120ms;
+  --t:      200ms;
+  --t-slow: 380ms;
+
+  /* --- Layout ------------------------------------------------------------ */
+  --rail-w: 56px;
+  --topbar-h: 52px;
+  --panel-w: 400px;
+  --dock-h: 210px;
+
+  /* --- Video ground (FIXED -- identical in both themes) ------------------
+   * The surface a camera picture is drawn on, and everything layered over it.
+   *
+   * These do not follow the theme, and that is the single most important
+   * decision in the light palette. Three reasons, all of them about the
+   * picture rather than about taste:
+   *
+   *   * Tiles letterbox rather than stretch, because an operator judging a
+   *     vehicle by its shape cannot afford the aspect ratio to be a lie. The
+   *     bars that letterboxing produces are part of the frame. White bars
+   *     around a night-time feed are a light source pointed at the operator.
+   *
+   *   * This grid is overwhelmingly night PTZ footage. Against a light ground
+   *     the eye adapts to the ground, and the feed -- the thing being watched
+   *     -- goes to mud.
+   *
+   *   * An idle tile shows its last decoded frame at 26% brightness so it can
+   *     never be mistaken for live. That dimming only reads as "dimmed" over a
+   *     dark ground; over a light one it reads as a fault.
+   *
+   * So in light mode the chrome turns light and the tiles stay dark. That is
+   * the intended result, not an oversight: the wall is a set of pictures on a
+   * page, and the pictures keep their own ground.
+   */
+  --video-ground:       #04060a;
+  --video-scrim:        rgba(4, 6, 10, 0.70);
+  --video-scrim-strong: rgba(4, 6, 10, 0.82);
+  --video-chip:         rgba(17, 22, 31, 0.86);
+
+  /* Text and furniture drawn over --video-ground. Fixed for the same reason:
+   * a LIVE badge sits on video, not on the page. */
+  --on-video:       #e9eff7;
+  --on-video-dim:   #a3b3c7;
+  --on-video-mute:  #6b7d94;
+  --on-video-line:  #2a3441;
+
+  /* --- Map surface -------------------------------------------------------
+   * Unlike the video ground, these DO follow the theme -- the basemap itself
+   * is restyled (see the two palettes in basemap.js), so the furniture drawn
+   * over it has to move with it.
+   *
+   * The vignette darkens the map edges so the translucent panels keep their
+   * contrast where the basemap is bright. Under a light basemap the same job
+   * needs the opposite sign: the edges are lightened instead.
+   *
+   * The pin ring exists to separate a pin from whatever is underneath it, so
+   * it inverts too -- a dark ring on a dark map would be invisible against a
+   * park, which is the case it was added for. */
+  --vignette-a:    rgba(4, 6, 10, 0.50);
+  --vignette-b:    rgba(4, 6, 10, 0.55);
+  --vignette-c:    rgba(4, 6, 10, 0.42);
+  --map-chip:      rgba(6, 8, 12, 0.75);
+  --pin-ring:      rgba(5, 7, 11, 0.92);
+  --pin-edge:      rgba(255, 255, 255, 0.16);
+  --pin-shadow:    rgba(0, 0, 0, 0.75);
+  --dock-shadow:   rgba(0, 0, 0, 0.50);
+}
+
+/* =========================================================================
+ * Light theme.
+ *
+ * Applied only when theme.js resolves the operator's stored choice to
+ * `data-theme="light"` on <html>. There is no bare `prefers-color-scheme`
+ * rule here on purpose: the OS setting is consulted only if the operator has
+ * explicitly picked "Auto", and theme.js does that resolution in script so
+ * this file has exactly one light palette rather than two copies of one.
+ *
+ * The surfaces invert. The hues do not move meaning, but they do move
+ * *value*: #2fd6a0 is a good "live" against near-black and a poor one against
+ * white, so each hue is re-mixed to clear 4.5:1 on --surface while staying
+ * recognisably the same signal. A green that fails contrast is a green an
+ * operator does not see.
+ * ===================================================================== */
+
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  /* --- Surfaces ---------------------------------------------------------
+   * Six steps again, but the order of the middle ones is not a mirror. Under
+   * dark, "raised" means lighter; under light, raised means *whiter* while the
+   * page ground is the grey one, so --bg is the darkest of the set and
+   * --surface is pure white. Panels read as paper on a desk. */
+  --bg:            #e8ecf3;
+  --surface:       #ffffff;
+  --surface-2:     #f4f6fa;
+  --surface-3:     #e9edf4;
+  --surface-hi:    #dce3ed;
+  --scrim:         rgba(16, 24, 40, 0.38);
+
+  --glass:         rgba(255, 255, 255, 0.88);
+  --glass-2:       rgba(247, 249, 252, 0.93);
+
+  /* --- Lines ------------------------------------------------------------ */
+  --line:          #dce2ec;
+  --line-strong:   #bcc6d5;
+  --line-focus:    #7aa7e0;
+
+  /* --- Text -------------------------------------------------------------
+   * --text-mute still has to clear 4.5:1 on white, because it carries units
+   * and labels that get read. --text-faint is decorative and holds ~3.5:1. */
+  --text:          #0e1620;
+  --text-dim:      #3c4a5c;
+  --text-mute:     #5d6b82;
+  --text-faint:    #7c8a9e;
+
+  /* --- Signal hues, re-mixed for a light ground ------------------------- */
+  --accent:        #1667d2;
+  --accent-soft:   rgba(22, 103, 210, 0.10);
+  --accent-line:   rgba(22, 103, 210, 0.34);
+
+  --signal:        #0a8a62;
+  --signal-soft:   rgba(10, 138, 98, 0.11);
+  --signal-line:   rgba(10, 138, 98, 0.32);
+
+  --warn:          #9a6205;
+  --warn-soft:     rgba(154, 98, 5, 0.11);
+  --warn-line:     rgba(154, 98, 5, 0.30);
+
+  --high:          #bc4a19;
+  --high-soft:     rgba(188, 74, 25, 0.11);
+  --high-line:     rgba(188, 74, 25, 0.30);
+
+  --critical:      #c81f3f;
+  --critical-soft: rgba(200, 31, 63, 0.10);
+  --critical-line: rgba(200, 31, 63, 0.32);
+
+  --trace:         #6340c8;
+  --trace-soft:    rgba(99, 64, 200, 0.11);
+  --trace-line:    rgba(99, 64, 200, 0.30);
+
+  /* The hues are now dark, so what sits on them is white. */
+  --on-accent:     #ffffff;
+  --on-critical:   #ffffff;
+  --on-trace:      #ffffff;
+
+  /* --- Elevation --------------------------------------------------------
+   * Under dark, depth came from luminance and shadows were nearly invisible.
+   * Under light it is the shadows doing that work, so they carry real spread
+   * at low alpha -- a hard black shadow on white reads as a cut-out. */
+  --sh-sm: 0 1px 2px rgba(16, 24, 40, 0.07);
+  --sh:    0 4px 16px rgba(16, 24, 40, 0.10);
+  --sh-lg: 0 12px 40px rgba(16, 24, 40, 0.14);
+  --sh-xl: 0 24px 70px rgba(16, 24, 40, 0.20);
+
+  /* --- Map surface ------------------------------------------------------
+   * The basemap is rebuilt from the LIGHT palette in basemap.js, so everything
+   * drawn over it flips sign: the vignette lightens the edges rather than
+   * darkening them, and the pin ring goes dark so a pin still separates from
+   * pale parkland. The pin *shadow* stays black at lower alpha -- a shadow is
+   * an absence of light under both themes, and inverting it turns every pin
+   * into a glowing dot. */
+  --vignette-a:    rgba(246, 248, 251, 0.62);
+  --vignette-b:    rgba(246, 248, 251, 0.66);
+  --vignette-c:    rgba(246, 248, 251, 0.52);
+  --map-chip:      rgba(255, 255, 255, 0.82);
+  --pin-ring:      rgba(255, 255, 255, 0.95);
+  --pin-edge:      rgba(16, 24, 40, 0.28);
+  --pin-shadow:    rgba(16, 24, 40, 0.30);
+  --dock-shadow:   rgba(16, 24, 40, 0.16);
+
+  /* Note what is absent: --video-ground, --video-scrim*, --video-chip and the
+   * --on-video-* set are NOT redefined here. See the note over their
+   * definition -- the tiles keep their dark ground under both themes. */
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --t-fast: 0ms; --t: 0ms; --t-slow: 0ms; }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

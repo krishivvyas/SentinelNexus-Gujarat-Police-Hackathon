@@ -86,9 +86,58 @@ def health():
     return {"status": "ok", "profile": settings.profile}
 
 
+class RevalidatingStatics(StaticFiles):
+    """Static files that must be revalidated before they are reused.
+
+    Starlette's StaticFiles sends ``ETag`` and ``Last-Modified`` but **no**
+    ``Cache-Control``. A browser given a validator and no freshness directive
+    falls back to *heuristic* caching -- typically a tenth of the file's age --
+    and during that window it does not revalidate at all. It just serves what it
+    has.
+
+    For a normal site that is a bandwidth optimisation. Here it is a
+    correctness bug, and a nasty one: this UI is a set of ES modules that have
+    to agree with each other. A browser holding a stale ``basemap.js`` beside a
+    fresh ``theme.js`` produces an interface that is half-updated and blames
+    nobody -- the symptom is a light command centre with a dark map, with no
+    error anywhere to say why. That exact failure is what this class exists to
+    stop; it cost a debugging session to find once.
+
+    ``no-cache`` does not mean "do not store". It means "store it, but ask
+    before reusing it", so the conditional request still answers 304 with an
+    empty body. On an isolated operator network that is effectively free, and it
+    is the right side of the trade: this platform is specified to run from one
+    process on one machine, where a round trip costs nothing and a stale module
+    costs an afternoon.
+    """
+
+    async def get_response(self, path: str, scope):
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
+def _page(name: str) -> FileResponse:
+    """An application shell page, under the same revalidation rule as the
+    modules it loads -- a cached index.html pinning an old module graph is the
+    same bug one level up."""
+    return FileResponse(STATIC_DIR / name, headers={"Cache-Control": "no-cache"})
+
+
 if STATIC_DIR.exists():
-    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+    app.mount("/static", RevalidatingStatics(directory=STATIC_DIR), name="static")
 
     @app.get("/")
     def index():
-        return FileResponse(STATIC_DIR / "index.html")
+        return _page("index.html")
+
+    @app.get("/wall")
+    def wall():
+        """The video wall, as its own page rather than a panel.
+
+        The command centre is for investigating one thing and the wall is for
+        watching the estate; those want opposite layouts, and sharing one screen
+        meant the wall got 210 px of it. Separate pages also mean an operator can
+        put the wall on a second display and keep the map on the first.
+        """
+        return _page("wall.html")

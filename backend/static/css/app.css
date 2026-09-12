@@ -1,0 +1,1057 @@
+/* Sentinel Nexus — command centre layout and components. */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;                 /* the map scrolls, the page never does */
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 400 var(--fs-body)/1.5 var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Every number in this interface is compared down a column, so digits are
+ * tabular everywhere by default rather than opt-in. */
+.mono, input[type="text"].mono, td.num, .num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1, "zero" 1;
+}
+
+::selection { background: var(--accent-soft); color: var(--text); }
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+/* Scrollbars: present enough to grab, quiet enough to ignore. */
+* { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+*::-webkit-scrollbar { width: 9px; height: 9px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border: 2px solid transparent;
+  background-clip: content-box;
+  border-radius: var(--r-pill);
+}
+*::-webkit-scrollbar-thumb:hover { background-color: var(--text-faint); background-clip: content-box; }
+
+/* =====================================================================
+   Shell
+   ===================================================================== */
+
+#shell {
+  display: grid;
+  grid-template-columns: var(--rail-w) 1fr;
+  grid-template-rows: var(--topbar-h) 1fr;
+  grid-template-areas: "topbar topbar" "rail stage";
+  height: 100vh;
+}
+
+/* ---------------------------------------------------------------- topbar */
+
+#topbar {
+  grid-area: topbar;
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  padding: 0 var(--s4);
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  z-index: 60;
+}
+
+.brand { display: flex; align-items: center; gap: 10px; user-select: none; }
+.brand-mark {
+  width: 26px; height: 26px;
+  display: grid; place-items: center;
+  border-radius: 7px;
+  background: linear-gradient(150deg, var(--accent), #2f6fd0);
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.07) inset, 0 2px 8px rgba(77,157,255,0.28);
+}
+.brand-mark svg { width: 15px; height: 15px; }
+.brand-name { font-size: var(--fs-mid); font-weight: 700; letter-spacing: -0.01em; line-height: 1.1; }
+.brand-sub {
+  font-size: 9px; letter-spacing: 0.16em; text-transform: uppercase;
+  color: var(--text-mute); line-height: 1.1; margin-top: 2px;
+}
+
+.vr { width: 1px; height: 22px; background: var(--line); flex: none; }
+
+/* Command bar. Deliberately the widest thing in the top bar: on this system
+ * the most common first action is "find this plate" or "find this camera". */
+#omni { position: relative; flex: 1 1 auto; max-width: 460px; }
+#omni input {
+  width: 100%;
+  height: 34px;
+  padding: 0 var(--s3) 0 34px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  color: var(--text);
+  font: inherit;
+  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+#omni input::placeholder { color: var(--text-faint); }
+#omni input:focus {
+  outline: none;
+  border-color: var(--line-focus);
+  background: var(--surface-3);
+}
+#omni .omni-icon {
+  position: absolute; left: 11px; top: 50%; transform: translateY(-50%);
+  color: var(--text-faint); pointer-events: none;
+}
+#omni kbd {
+  position: absolute; right: 9px; top: 50%; transform: translateY(-50%);
+  font: 500 10px/1 var(--font-mono);
+  color: var(--text-faint);
+  background: var(--surface-hi);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 3px 5px;
+  pointer-events: none;
+}
+
+.topbar-right { margin-left: auto; display: flex; align-items: center; gap: var(--s2); }
+
+/* ------------------------------------------------------------------ rail */
+
+#rail {
+  grid-area: rail;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: var(--s2) 0;
+  background: var(--surface);
+  border-right: 1px solid var(--line);
+  z-index: 55;
+}
+
+.rail-btn {
+  position: relative;
+  width: 40px; height: 40px;
+  display: grid; place-items: center;
+  border: none; border-radius: var(--r);
+  background: transparent;
+  color: var(--text-mute);
+  cursor: pointer;
+  transition: color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.rail-btn:hover { color: var(--text-dim); background: var(--surface-2); }
+
+/* Hover label.
+ *
+ * A 56 px rail of glyphs is only self-explanatory to whoever chose the glyphs.
+ * The buttons have always carried a `title`, but the native tooltip waits about
+ * a second, renders in the OS style rather than this one, and never appears at
+ * all on a touch display -- so in practice an operator learned the rail by
+ * clicking everything once. This says the name immediately, in the interface's
+ * own type.
+ *
+ * Built from `data-label` rather than reusing `title`: CSS cannot read `title`,
+ * and leaving both in place would show the flyout and then the native tooltip
+ * a second later, one on top of the other. `title` is dropped from the rail
+ * buttons and `aria-label` carries the accessible name instead.
+ *
+ * `#rail` has to stop clipping for this to be visible at all, hence the
+ * overflow rule -- it is the reason this pattern needs two selectors. */
+#rail { overflow: visible; }
+
+.rail-btn::after {
+  content: attr(data-label);
+  position: absolute;
+  left: calc(100% + 10px);
+  top: 50%;
+  transform: translateY(-50%) translateX(-4px);
+  z-index: 70;
+  padding: 5px 9px;
+  border-radius: var(--r-sm);
+  background: var(--surface-hi);
+  border: 1px solid var(--line-strong);
+  box-shadow: var(--sh);
+  color: var(--text);
+  font-size: var(--fs-tiny);
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--t-fast) var(--ease), transform var(--t-fast) var(--ease);
+}
+/* Focus-visible as well as hover, so the label is reachable from the keyboard
+ * and not only from a mouse. */
+.rail-btn:hover::after,
+.rail-btn:focus-visible::after {
+  opacity: 1;
+  transform: translateY(-50%) translateX(0);
+}
+/* The badge would otherwise sit under the label of the button it belongs to. */
+.rail-btn:hover .badge { z-index: 1; }
+.rail-btn.active { color: var(--accent); background: var(--accent-soft); }
+/* A 2px bar on the rail edge, not a full outline: it marks which panel is
+ * open without adding another rectangle to a screen already full of them. */
+.rail-btn.active::before {
+  content: ""; position: absolute; left: -8px; top: 9px;
+  width: 2px; height: 22px; border-radius: 0 2px 2px 0; background: var(--accent);
+}
+.rail-btn .badge {
+  position: absolute; top: 5px; right: 5px;
+  min-width: 15px; height: 15px; padding: 0 4px;
+  display: grid; place-items: center;
+  font: 700 9px/1 var(--font-mono);
+  color: var(--on-critical); background: var(--critical);
+  border-radius: var(--r-pill);
+  border: 2px solid var(--surface);
+}
+.rail-spacer { flex: 1; }
+
+/* ----------------------------------------------------------------- stage */
+
+#stage { grid-area: stage; position: relative; overflow: hidden; }
+
+#map { position: absolute; inset: 0; background: var(--bg); }
+
+/* MapLibre's own chrome, restyled to belong here. */
+.maplibregl-ctrl-attrib {
+  background: var(--map-chip) !important;
+  color: var(--text-faint) !important;
+  font: 400 10px/1.5 var(--font-sans) !important;
+  border-radius: var(--r-sm) 0 0 0 !important;
+}
+.maplibregl-ctrl-attrib a { color: var(--text-mute) !important; }
+.maplibregl-ctrl-group {
+  background: var(--glass) !important;
+  border: 1px solid var(--line) !important;
+  border-radius: var(--r) !important;
+  box-shadow: var(--sh) !important;
+  overflow: hidden;
+}
+.maplibregl-ctrl-group button + button { border-top: 1px solid var(--line) !important; }
+.maplibregl-ctrl-group button { background: transparent !important; }
+.maplibregl-ctrl-group button:hover { background: var(--surface-3) !important; }
+.maplibregl-ctrl-group button span { filter: invert(1) opacity(0.72); }
+.maplibregl-popup-content {
+  background: var(--glass-2) !important;
+  backdrop-filter: var(--blur);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r) !important;
+  box-shadow: var(--sh-lg) !important;
+  padding: 0 !important;
+  color: var(--text);
+}
+.maplibregl-popup-tip { display: none; }
+.maplibregl-popup-close-button { color: var(--text-mute) !important; font-size: 18px; }
+
+/* =====================================================================
+   Camera markers
+   Drawn as DOM markers rather than a symbol layer so that status, ANPR
+   capability and alarm state can each use a different visual channel --
+   colour, ring and pulse -- without three copies of the icon.
+   ===================================================================== */
+
+.cam {
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  cursor: pointer;
+  background: var(--text-mute);
+  border: 2px solid var(--pin-ring);
+  box-shadow: 0 0 0 1px var(--pin-edge), 0 1px 4px var(--pin-shadow);
+  transition: transform var(--t-fast) var(--ease);
+}
+.cam:hover { transform: scale(1.35); }
+.cam.online   { background: var(--signal); }
+.cam.degraded { background: var(--warn); }
+.cam.offline  { background: var(--critical); }
+.cam.unknown  { background: var(--text-faint); }
+
+/* ANPR-capable cameras get a ring rather than a different colour: capability
+ * and health are independent facts and an operator reads both at once. */
+.cam.anpr { box-shadow: 0 0 0 1px var(--pin-edge), 0 0 0 4px var(--accent-line), 0 1px 4px var(--pin-shadow); }
+.cam.selected { transform: scale(1.5); box-shadow: 0 0 0 2px var(--text), 0 0 0 7px var(--accent-soft); }
+
+/* An approximate position is drawn hollow. A pin that was estimated from a
+ * camera's overlay label must never look like a surveyed one. */
+.cam.approx { background: transparent; border-color: var(--warn); border-style: dashed; }
+
+.cam.hit { animation: camhit 1s var(--ease) infinite; }
+@keyframes camhit {
+  0%   { box-shadow: 0 0 0 1px var(--pin-edge), 0 0 0 0 var(--critical-soft); }
+  70%  { box-shadow: 0 0 0 1px var(--pin-edge), 0 0 0 16px rgba(255,84,112,0); }
+  100% { box-shadow: 0 0 0 1px var(--pin-edge), 0 0 0 0 rgba(255,84,112,0); }
+}
+
+/* POI markers are smaller and dimmer than cameras on purpose: they are
+ * context for reading a route, never the subject of the map. */
+.poi {
+  width: 7px; height: 7px; border-radius: 2px;
+  opacity: 0.75; cursor: pointer;
+  border: 1px solid var(--pin-edge);
+}
+.poi:hover { opacity: 1; transform: scale(1.5); }
+
+/* Trace waypoints are numbered so the order of a journey is readable without
+ * animating it. */
+.waypoint {
+  width: 22px; height: 22px; border-radius: 50%;
+  display: grid; place-items: center;
+  font: 700 10px/1 var(--font-mono);
+  color: var(--on-trace);
+  background: var(--trace);
+  border: 2px solid var(--pin-ring);
+  box-shadow: 0 2px 8px var(--pin-shadow);
+  cursor: pointer;
+}
+.waypoint.current { background: var(--text); box-shadow: 0 0 0 5px var(--trace-soft), 0 2px 8px var(--pin-shadow); }
+
+/* =====================================================================
+   Floating panels
+   ===================================================================== */
+
+.float {
+  position: absolute;
+  background: var(--glass);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--sh-lg);
+  z-index: 20;
+}
+
+/* Layer control, top-left over the map. */
+#layers {
+  top: var(--s4); left: var(--s4);
+  width: 268px;
+  max-height: calc(100% - var(--s8));
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+#layers.collapsed .layer-body { display: none; }
+
+.float-head {
+  display: flex; align-items: center; gap: var(--s2);
+  padding: 10px var(--s3);
+  border-bottom: 1px solid var(--line);
+  user-select: none;
+}
+.float-title {
+  font-size: var(--fs-micro); font-weight: 700;
+  letter-spacing: var(--tracking-caps); text-transform: uppercase;
+  color: var(--text-mute);
+}
+.float-head .icon-btn { margin-left: auto; }
+
+.layer-body { overflow-y: auto; padding: var(--s2); }
+.layer-group + .layer-group { margin-top: var(--s3); padding-top: var(--s3); border-top: 1px solid var(--line); }
+.layer-group-title {
+  font-size: var(--fs-micro); font-weight: 600;
+  letter-spacing: var(--tracking-caps); text-transform: uppercase;
+  color: var(--text-faint);
+  padding: 0 var(--s2) var(--s2);
+}
+
+.layer {
+  display: flex; align-items: center; gap: 9px;
+  width: 100%;
+  padding: 7px var(--s2);
+  border: none; border-radius: var(--r-sm);
+  background: transparent; color: var(--text-dim);
+  font: inherit; text-align: left; cursor: pointer;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.layer:hover { background: var(--surface-3); color: var(--text); }
+.layer .swatch {
+  width: 9px; height: 9px; border-radius: 2px; flex: none;
+  background: currentColor; opacity: 0.35;
+  transition: opacity var(--t-fast) var(--ease);
+}
+.layer.on { color: var(--text); }
+.layer.on .swatch { opacity: 1; }
+.layer .lname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.layer .lcount {
+  font: 500 var(--fs-micro)/1 var(--font-mono);
+  color: var(--text-faint);
+  background: var(--surface-3);
+  padding: 3px 5px; border-radius: 4px;
+}
+.layer.on .lcount { color: var(--text-dim); }
+.layer[data-status="fetching"] .lcount { color: var(--accent); }
+.layer[disabled] { opacity: 0.45; cursor: default; }
+
+/* The rationale line. Every layer states why it is worth the clutter --
+ * a layer nobody understands is a layer nobody turns on. */
+.layer-why {
+  font-size: var(--fs-micro); line-height: 1.45; color: var(--text-faint);
+  padding: 0 var(--s2) var(--s2) 30px; margin-top: -2px;
+}
+
+/* ------------------------------------------------------- right slide-over */
+
+#panel {
+  position: absolute; top: 0; right: 0; bottom: 0;
+  width: var(--panel-w);
+  max-width: 92vw;
+  display: flex; flex-direction: column;
+  background: var(--glass-2);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
+  border-left: 1px solid var(--line);
+  box-shadow: var(--sh-xl);
+  transform: translateX(100%);
+  transition: transform var(--t-slow) var(--ease);
+  z-index: 40;
+}
+#panel.open { transform: none; }
+#panel.wide { width: 620px; }
+
+.panel-head {
+  display: flex; align-items: center; gap: var(--s3);
+  padding: var(--s3) var(--s4);
+  border-bottom: 1px solid var(--line);
+  flex: none;
+}
+.panel-title { font-size: var(--fs-mid); font-weight: 650; letter-spacing: -0.01em; }
+.panel-sub { font-size: var(--fs-tiny); color: var(--text-mute); margin-top: 1px; }
+.panel-body { flex: 1; overflow-y: auto; overscroll-behavior: contain; }
+.panel-section { padding: var(--s4); }
+.panel-section + .panel-section { border-top: 1px solid var(--line); }
+.panel-foot {
+  flex: none; padding: var(--s3) var(--s4);
+  border-top: 1px solid var(--line);
+  display: flex; gap: var(--s2); align-items: center;
+  background: var(--surface);
+}
+
+/* --------------------------------------------------------------- the dock */
+
+#dock {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  height: var(--dock-h);
+  display: flex; flex-direction: column;
+  background: var(--glass-2);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
+  border-top: 1px solid var(--line);
+  box-shadow: 0 -12px 40px var(--dock-shadow);
+  transform: translateY(100%);
+  transition: transform var(--t-slow) var(--ease);
+  z-index: 35;
+}
+#dock.open { transform: none; }
+#dock.tall { height: 62vh; }
+
+.dock-head {
+  display: flex; align-items: center; gap: var(--s3);
+  padding: var(--s2) var(--s4);
+  border-bottom: 1px solid var(--line);
+  flex: none;
+}
+.dock-grid {
+  flex: 1; overflow-y: auto;
+  display: grid; gap: var(--s2);
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  padding: var(--s3) var(--s4);
+  align-content: start;
+}
+
+/* Tiles hold 16:9 and letterbox rather than stretching. A distorted feed is
+ * worse than a smaller one -- an operator judging a vehicle by shape cannot
+ * afford the aspect ratio to be a lie. */
+.tile {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  background: var(--video-ground);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  overflow: hidden;
+}
+.tile img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.tile .tile-bar {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 8px;
+  background: linear-gradient(transparent, rgba(4,6,10,0.92));
+  font-size: var(--fs-micro);
+}
+.tile .tile-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tile .tile-x {
+  position: absolute; top: 6px; right: 6px;
+  width: 22px; height: 22px;
+  display: grid; place-items: center;
+  border: none; border-radius: var(--r-sm);
+  background: rgba(4,6,10,0.7); color: var(--text-dim);
+  cursor: pointer; opacity: 0;
+  transition: opacity var(--t-fast) var(--ease);
+}
+.tile:hover .tile-x { opacity: 1; }
+.tile .tile-state {
+  position: absolute; inset: 0;
+  display: grid; place-items: center;
+  color: var(--text-mute); font-size: var(--fs-tiny); text-align: center;
+  padding: var(--s4);
+}
+
+/* =====================================================================
+   Primitives
+   ===================================================================== */
+
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 30px; padding: 0 12px;
+  border: 1px solid var(--line-strong); border-radius: var(--r-sm);
+  background: var(--surface-3); color: var(--text-dim);
+  font: 500 var(--fs-small)/1 var(--font-sans);
+  cursor: pointer; white-space: nowrap;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease),
+              border-color var(--t-fast) var(--ease);
+}
+.btn:hover { background: var(--surface-hi); color: var(--text); border-color: var(--line-focus); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn.primary {
+  background: var(--accent); border-color: transparent; color: var(--on-accent); font-weight: 650;
+}
+.btn.primary:hover { filter: brightness(1.12); color: var(--on-accent); }
+.btn.danger { color: var(--critical); border-color: var(--critical-line); }
+.btn.danger:hover { background: var(--critical-soft); color: var(--critical); }
+.btn.sm { height: 26px; padding: 0 9px; font-size: var(--fs-tiny); }
+.btn.ghost { background: transparent; border-color: transparent; }
+.btn.ghost:hover { background: var(--surface-3); border-color: transparent; }
+
+.icon-btn {
+  width: 28px; height: 28px;
+  display: grid; place-items: center;
+  border: none; border-radius: var(--r-sm);
+  background: transparent; color: var(--text-mute);
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.icon-btn:hover { background: var(--surface-3); color: var(--text); }
+
+.field {
+  width: 100%; height: 32px;
+  padding: 0 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  color: var(--text); font: inherit;
+  transition: border-color var(--t-fast) var(--ease);
+}
+.field:focus { outline: none; border-color: var(--line-focus); background: var(--surface-3); }
+.field::placeholder { color: var(--text-faint); }
+select.field { cursor: pointer; appearance: none; padding-right: 26px;
+  background-image: linear-gradient(45deg, transparent 50%, var(--text-mute) 50%),
+                    linear-gradient(135deg, var(--text-mute) 50%, transparent 50%);
+  background-position: calc(100% - 14px) 14px, calc(100% - 9px) 14px;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat; }
+
+.tag {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 7px;
+  font: 600 var(--fs-micro)/1.5 var(--font-sans);
+  letter-spacing: 0.03em;
+  border: 1px solid var(--line-strong); border-radius: 4px;
+  background: var(--surface-3); color: var(--text-mute);
+  white-space: nowrap;
+}
+.tag.ok   { color: var(--signal);   border-color: var(--signal-line);   background: var(--signal-soft); }
+.tag.warn { color: var(--warn);     border-color: var(--warn-line);     background: var(--warn-soft); }
+.tag.high { color: var(--high);     border-color: var(--high-line);     background: var(--high-soft); }
+.tag.crit { color: var(--critical); border-color: var(--critical-line); background: var(--critical-soft); }
+.tag.info { color: var(--accent);   border-color: var(--accent-line);    background: var(--accent-soft); }
+.tag.trace{ color: var(--trace);    border-color: var(--trace-line);    background: var(--trace-soft); }
+
+.dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: none; }
+.dot.live { animation: pulse 2s var(--ease) infinite; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.25; } }
+
+.kv { display: grid; grid-template-columns: 108px 1fr; gap: 7px var(--s3); align-items: baseline; }
+.kv dt { font-size: var(--fs-tiny); color: var(--text-mute); }
+.kv dd { margin: 0; font-size: var(--fs-small); color: var(--text-dim); word-break: break-word; }
+
+.label {
+  font-size: var(--fs-micro); font-weight: 700;
+  letter-spacing: var(--tracking-caps); text-transform: uppercase;
+  color: var(--text-mute);
+}
+
+.muted { color: var(--text-mute); }
+.faint { color: var(--text-faint); }
+.empty { padding: var(--s7) var(--s4); text-align: center; color: var(--text-faint); font-size: var(--fs-small); }
+
+/* Metric tiles. The unit and the qualifier are part of the number: a bare
+ * "24" on a wall display invites the wrong reading. */
+.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+.metric { background: var(--surface); padding: var(--s3); }
+.metric .m-k { font-size: var(--fs-micro); letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--text-mute); }
+.metric .m-v { font: 650 var(--fs-xl)/1.15 var(--font-mono); font-variant-numeric: tabular-nums; margin-top: 5px; }
+.metric .m-s { font-size: var(--fs-micro); color: var(--text-faint); margin-top: 3px; }
+.metric.ok .m-v   { color: var(--signal); }
+.metric.warn .m-v { color: var(--warn); }
+.metric.crit .m-v { color: var(--critical); }
+
+/* Rows: the workhorse list item for events, cameras, alerts, watchlist. */
+.row {
+  display: flex; align-items: center; gap: var(--s3);
+  width: 100%; padding: 10px var(--s4);
+  border: none; border-bottom: 1px solid var(--line);
+  background: transparent; color: inherit;
+  font: inherit; text-align: left; cursor: pointer;
+  transition: background var(--t-fast) var(--ease);
+}
+.row:hover { background: var(--surface-2); }
+.row.selected { background: var(--accent-soft); }
+.row-main { flex: 1; min-width: 0; }
+.row-title { font-size: var(--fs-small); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-sub { font-size: var(--fs-tiny); color: var(--text-mute); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-side { text-align: right; flex: none; }
+
+.thumb {
+  width: 62px; height: 36px; flex: none;
+  object-fit: cover; border-radius: var(--r-sm);
+  background: var(--surface-3); border: 1px solid var(--line);
+}
+
+/* A plate reading, wherever it appears. Wide tracking because operators read
+ * these character by character against a written note. */
+.plate {
+  display: inline-block;
+  font: 700 var(--fs-small)/1.5 var(--font-mono);
+  letter-spacing: 0.12em;
+  padding: 3px 8px;
+  border-radius: var(--r-sm);
+  background: var(--surface-hi);
+  border: 1px solid var(--line-strong);
+  color: var(--text);
+}
+.plate.none {
+  letter-spacing: 0.02em; font-weight: 500;
+  color: var(--text-faint); background: transparent; border-style: dashed;
+}
+
+/* Confidence bar. Shown next to every plate because on this footage OCR is
+ * right most of the time, not all of the time, and the operator is the one
+ * who has to decide. */
+.conf { width: 46px; height: 3px; border-radius: 2px; background: var(--surface-hi); overflow: hidden; }
+.conf i { display: block; height: 100%; background: var(--signal); }
+.conf.low i { background: var(--warn); }
+.conf.bad i { background: var(--critical); }
+
+.note {
+  padding: 10px var(--s3);
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line-strong);
+  background: var(--surface-2);
+  font-size: var(--fs-tiny); line-height: 1.55; color: var(--text-dim);
+}
+.note.warn { border-color: rgba(240,166,60,0.3); background: var(--warn-soft); color: #f3d6a4; }
+.note.info { border-color: var(--accent-line); background: var(--accent-soft); color: #bcd9ff; }
+
+/* Timeline for a trace. */
+.timeline { list-style: none; margin: 0; padding: 0 0 0 var(--s4); }
+.timeline li { position: relative; padding: 0 0 var(--s4) var(--s5); border-left: 1px solid var(--line-strong); }
+.timeline li:last-child { border-left-color: transparent; padding-bottom: 0; }
+.timeline li::before {
+  content: ""; position: absolute; left: -5px; top: 4px;
+  width: 9px; height: 9px; border-radius: 50%;
+  background: var(--trace); border: 2px solid var(--surface);
+}
+.timeline li.gap::before { background: var(--warn); }
+
+/* Tables, for the import preview. */
+table.data { width: 100%; border-collapse: collapse; font-size: var(--fs-tiny); }
+table.data th {
+  position: sticky; top: 0; z-index: 1;
+  text-align: left; padding: 7px var(--s2);
+  font-size: var(--fs-micro); font-weight: 700;
+  letter-spacing: var(--tracking-caps); text-transform: uppercase;
+  color: var(--text-mute);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line-strong);
+}
+table.data td { padding: 6px var(--s2); border-bottom: 1px solid var(--line); color: var(--text-dim); }
+table.data tr:hover td { background: var(--surface-2); }
+.scroll-x { overflow-x: auto; }
+
+/* =====================================================================
+   Sign in
+   ===================================================================== */
+
+#gate {
+  position: fixed; inset: 0; z-index: 200;
+  display: grid; place-items: center;
+  background:
+    radial-gradient(900px 600px at 22% 12%, rgba(77,157,255,0.10), transparent 62%),
+    radial-gradient(760px 520px at 82% 92%, rgba(47,214,160,0.07), transparent 60%),
+    var(--bg);
+}
+.gate-card {
+  width: 372px; max-width: 92vw;
+  padding: var(--s7);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xl);
+  box-shadow: var(--sh-xl);
+}
+.gate-card h1 { font-size: var(--fs-xl); font-weight: 650; margin: var(--s4) 0 4px; letter-spacing: -0.015em; }
+.gate-card p.sub { font-size: var(--fs-small); color: var(--text-mute); margin: 0 0 var(--s5); }
+.gate-card .field { height: 36px; margin-bottom: var(--s2); }
+.gate-card .btn { width: 100%; height: 36px; justify-content: center; margin-top: var(--s2); }
+.gate-err { font-size: var(--fs-small); color: var(--critical); margin-top: var(--s3); min-height: 18px; }
+
+/* Why this form is in the way. Only rendered when the operator was sent here
+ * from somewhere else -- a gate that explains itself on every visit is just
+ * noise, and the ordinary case is that they came here to sign in. */
+.gate-note {
+  display: flex; align-items: flex-start; gap: var(--s2);
+  margin: 0 0 var(--s4);
+  padding: 10px var(--s3);
+  border: 1px solid var(--warn-line);
+  border-radius: var(--r);
+  background: var(--warn-soft);
+  color: var(--text-dim);
+  font-size: var(--fs-small);
+  line-height: 1.5;
+  text-align: left;
+}
+.gate-note svg { color: var(--warn); flex: none; margin-top: 2px; }
+.gate-hint {
+  margin-top: var(--s5); padding-top: var(--s4);
+  border-top: 1px solid var(--line);
+  font-size: var(--fs-tiny); color: var(--text-faint); line-height: 1.6;
+}
+.gate-hint code { color: var(--text-mute); font-family: var(--font-mono); }
+
+/* =====================================================================
+   Toasts and live alerts
+   ===================================================================== */
+
+#toasts {
+  position: absolute; right: var(--s4); bottom: var(--s4);
+  display: flex; flex-direction: column; gap: var(--s2);
+  z-index: 80; pointer-events: none;
+  max-width: 340px;
+}
+.toast {
+  pointer-events: auto;
+  display: flex; gap: 10px; align-items: flex-start;
+  padding: var(--s3);
+  background: var(--glass-2);
+  backdrop-filter: var(--blur);
+  border: 1px solid var(--line-strong);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--r);
+  box-shadow: var(--sh-lg);
+  animation: toastin var(--t-slow) var(--ease);
+}
+.toast.crit { border-left-color: var(--critical); }
+.toast.ok { border-left-color: var(--signal); }
+.toast.warn { border-left-color: var(--warn); }
+.toast-title { font-size: var(--fs-small); font-weight: 650; }
+.toast-body { font-size: var(--fs-tiny); color: var(--text-mute); margin-top: 2px; line-height: 1.5; }
+@keyframes toastin { from { opacity: 0; transform: translateY(10px) scale(0.98); } }
+
+/* =====================================================================
+   Guided walkthrough
+   ===================================================================== */
+
+#tour { position: fixed; inset: 0; z-index: 300; pointer-events: none; }
+#tour.blocking { pointer-events: auto; }
+
+.tour-scrim { position: absolute; inset: 0; background: var(--scrim); animation: fade var(--t) var(--ease); }
+@keyframes fade { from { opacity: 0; } }
+
+/* The spotlight is a hole punched with a huge box-shadow rather than an SVG
+ * mask: it animates on the compositor, so moving the highlight between steps
+ * costs nothing even with a map rendering behind it. */
+.tour-spot {
+  position: absolute;
+  border-radius: var(--r-lg);
+  box-shadow: 0 0 0 9999px var(--scrim), 0 0 0 1px var(--accent-line) inset;
+  transition: top var(--t-slow) var(--ease), left var(--t-slow) var(--ease),
+              width var(--t-slow) var(--ease), height var(--t-slow) var(--ease);
+  pointer-events: none;
+}
+
+.tour-card {
+  position: absolute;
+  width: 348px; max-width: 88vw;
+  padding: var(--s5);
+  background: var(--glass-2);
+  backdrop-filter: var(--blur);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-lg);
+  box-shadow: var(--sh-xl);
+  transition: top var(--t-slow) var(--ease), left var(--t-slow) var(--ease),
+              opacity var(--t) var(--ease);
+  pointer-events: auto;
+}
+.tour-step { font: 600 var(--fs-micro)/1 var(--font-mono); letter-spacing: 0.1em; color: var(--accent); }
+.tour-card h3 { margin: 10px 0 7px; font-size: var(--fs-lg); font-weight: 650; letter-spacing: -0.015em; }
+.tour-card p { margin: 0; font-size: var(--fs-small); line-height: 1.65; color: var(--text-dim); }
+.tour-card p b { color: var(--text); font-weight: 650; }
+.tour-actions { display: flex; align-items: center; gap: var(--s2); margin-top: var(--s5); }
+.tour-progress { height: 2px; border-radius: 2px; background: var(--surface-hi); overflow: hidden; margin-bottom: var(--s4); }
+.tour-progress i { display: block; height: 100%; background: var(--accent); transition: width var(--t-slow) var(--ease); }
+
+.tour-welcome { position: absolute; inset: 0; display: grid; place-items: center; }
+.tour-welcome-card {
+  width: 460px; max-width: 92vw; padding: var(--s7);
+  background: var(--surface); border: 1px solid var(--line-strong);
+  border-radius: var(--r-xl); box-shadow: var(--sh-xl);
+  pointer-events: auto; text-align: center;
+}
+.tour-welcome-card h2 { margin: var(--s4) 0 var(--s2); font-size: var(--fs-xl); font-weight: 650; }
+.tour-welcome-card p { margin: 0 0 var(--s5); font-size: var(--fs-small); color: var(--text-mute); line-height: 1.65; }
+.tour-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s2); margin-bottom: var(--s5); text-align: left; }
+.tour-grid div {
+  display: flex; align-items: center; gap: 7px;
+  padding: 9px var(--s3); font-size: var(--fs-tiny); color: var(--text-dim);
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-sm);
+}
+
+/* A simulated cursor, so a viewer can see what is being clicked. */
+.tour-cursor {
+  position: absolute; width: 20px; height: 20px; margin: -3px 0 0 -3px;
+  transition: left var(--t-slow) var(--ease), top var(--t-slow) var(--ease);
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.7));
+}
+.tour-ripple {
+  position: absolute; width: 12px; height: 12px; margin: -6px 0 0 -6px;
+  border-radius: 50%; border: 2px solid var(--accent);
+  animation: ripple 620ms var(--ease) forwards;
+}
+@keyframes ripple { to { transform: scale(3.6); opacity: 0; } }
+
+/* =====================================================================
+   Responsive
+   ===================================================================== */
+
+@media (max-width: 900px) {
+  :root { --panel-w: 100vw; --dock-h: 190px; }
+  #layers { width: calc(100vw - var(--s7)); }
+  #panel.wide { width: 100vw; }
+  .tour-grid { grid-template-columns: 1fr; }
+}
+
+[hidden] { display: none !important; }
+
+/* =====================================================================
+   Refinements for the real basemap
+   ---------------------------------------------------------------------
+   The map used to be a near-black canvas, so a flat 14 px dot was
+   perfectly visible on it. Over an actual basemap -- with roads, water,
+   parkland and place names underneath -- a flat dot competes with the
+   geography instead of sitting on it. Everything in this section exists
+   to keep the camera layer unambiguously in front.
+   ===================================================================== */
+
+/* The rail now contains a link as well as buttons. */
+a.rail-btn { text-decoration: none; }
+
+/* Camera pins get a dark halo so they read against a lit road or a park as
+ * cleanly as they did against black, and a slightly larger hit area: these are
+ * clicked all day, and a 14 px target is a 14 px target. */
+.cam {
+  width: 15px; height: 15px;
+  border: 2.5px solid var(--pin-ring);
+  box-shadow:
+    0 0 0 1px var(--pin-edge),
+    0 2px 7px var(--pin-shadow);
+}
+.cam.online {
+  background: var(--signal);
+  box-shadow:
+    0 0 0 1px var(--pin-edge),
+    0 0 11px rgba(47, 214, 160, 0.42),
+    0 2px 7px var(--pin-shadow);
+}
+.cam.anpr {
+  box-shadow:
+    0 0 0 1px var(--pin-edge),
+    0 0 0 4px var(--accent-line),
+    0 0 12px rgba(77, 157, 255, 0.3),
+    0 2px 7px var(--pin-shadow);
+}
+.cam.selected {
+  transform: scale(1.5);
+  box-shadow:
+    0 0 0 2px var(--text),
+    0 0 0 8px var(--accent-soft),
+    0 2px 10px var(--pin-shadow);
+}
+.cam.approx {
+  background: transparent;
+  border-color: var(--warn);
+  border-style: dashed;
+  box-shadow: 0 0 8px rgba(240, 166, 60, 0.3), 0 2px 6px var(--pin-shadow);
+}
+
+/* POIs sit further back now that there is real geography for them to sit on. */
+.poi { opacity: 0.62; box-shadow: 0 1px 3px var(--pin-shadow); }
+
+/* A vignette over the map edges. The panels are translucent, so without this
+ * the basemap's brightest areas bleed through them and the type on top loses
+ * contrast exactly where the layout expects it to be readable. Non-interactive,
+ * so it never eats a click meant for a pin. */
+#stage::after {
+  content: "";
+  position: absolute; inset: 0;
+  pointer-events: none;
+  z-index: 5;
+  background:
+    linear-gradient(to right, var(--vignette-a), transparent 22%,
+                    transparent 74%, var(--vignette-b)),
+    linear-gradient(to bottom, var(--vignette-c), transparent 18%,
+                    transparent 78%, var(--vignette-a));
+}
+
+/* Keep MapLibre's own controls above the vignette -- they live in the corners,
+ * which is exactly where it is darkest. */
+.maplibregl-ctrl-container { z-index: 6; }
+
+/* MapLibre's scale bar was invisible against a lit basemap. */
+.maplibregl-ctrl-scale {
+  background: var(--map-chip) !important;
+  border-color: var(--line-strong) !important;
+  color: var(--text-mute) !important;
+  font: 500 10px/1.6 var(--font-mono) !important;
+  border-radius: 0 var(--r-sm) 0 0 !important;
+}
+
+/* =====================================================================
+   The unplaced estate
+   Bottom-left over the map, opposite the layer control. It sits on the map
+   rather than in a panel because the fix for an unplaced camera *is* a map
+   click, and a tray you have to open a panel to reach is a tray nobody uses.
+   ===================================================================== */
+
+#unplaced {
+  bottom: var(--s4);
+  left: var(--s4);
+  width: 268px;
+  max-height: min(44%, 400px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+#unplaced[hidden] { display: none; }
+
+/* The two left-hand trays share one column: the layer control is anchored to
+ * the top and this one to the bottom, both of them absolutely positioned. Until
+ * this rule the layer list was still sized as though it had the column to
+ * itself, so its last group ran underneath the tray and was unreachable -- the
+ * geography toggles were simply gone. Give the layer control back the full
+ * height whenever the estate is fully placed and the tray is hidden. */
+#stage:has(#unplaced:not([hidden])) #layers {
+  max-height: calc(100% - var(--s8) - min(44%, 400px) - var(--s3));
+}
+#unplaced.collapsed .unplaced-body { display: none; }
+#unplaced .float-head .tag { margin-left: auto; }
+#unplaced .float-head .icon-btn { margin-left: 0; }
+#unplaced.collapsed .float-head .icon-btn svg { transform: rotate(180deg); }
+
+.unplaced-body {
+  overflow-y: auto;
+  padding: var(--s2) var(--s2) var(--s3);
+}
+
+.unplaced-why {
+  padding: var(--s2) 6px var(--s3);
+  font-size: var(--fs-micro);
+  line-height: 1.55;
+  color: var(--text-mute);
+}
+
+.unplaced-list { display: flex; flex-direction: column; gap: 4px; }
+
+.unplaced-card {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  width: 100%;
+  padding: 5px 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--r);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease),
+              border-color var(--t-fast) var(--ease);
+}
+.unplaced-card:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: var(--line);
+}
+.unplaced-card:disabled { cursor: default; opacity: 0.72; }
+
+/* Armed: this camera is the one the next map click places. The accent ring is
+ * the same signal the map's crosshair cursor is giving, so the two read as one
+ * action rather than two. */
+.unplaced-card.armed {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+}
+
+/* The camera's own last frame. This is the field that actually answers "where
+ * is this", so it leads the card rather than sitting in a tooltip. */
+.unplaced-shot {
+  flex: none;
+  width: 54px; height: 32px;
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  background: var(--surface-3);
+  border: 1px solid var(--line);
+  display: grid; place-items: center;
+}
+.unplaced-shot img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.unplaced-shot.empty {
+  font: 500 8px/1 var(--font-mono);
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+}
+
+.unplaced-meta { flex: 1; min-width: 0; }
+.unplaced-id {
+  display: flex; align-items: center; gap: 5px;
+  font-size: var(--fs-micro);
+}
+.unplaced-id .mono { color: var(--text-dim); font-size: var(--fs-tiny); }
+.unplaced-id .tag { padding: 0 4px; font-size: 8px; }
+.unplaced-name {
+  font-size: var(--fs-micro);
+  color: var(--text-mute);
+  margin-top: 2px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.unplaced-action {
+  flex: none;
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 9px; font-weight: 600;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--text-faint);
+  transition: color var(--t-fast) var(--ease);
+}
+.unplaced-card:hover:not(:disabled) .unplaced-action { color: var(--accent); }
+.unplaced-card.armed .unplaced-action { color: var(--accent); }
+.unplaced-card:disabled .unplaced-action { display: none; }
+
+/* On a narrow viewport the two map trays would stack on top of each other, so
+ * the unplaced tray gives way -- it is reachable from the layer control's
+ * "Not on the map" filter either way. */
+@media (max-width: 900px) {
+  #unplaced { display: none; }
+}

@@ -1,13 +1,17 @@
 """Licence-plate localisation and recovery.
 
-No second neural model is used here. A dedicated plate detector would add weight
-for little gain on this footage, because the limiting factor is not "where is the
-plate" but "are there enough pixels on it to read". Candidates are found with
-classical morphology inside an already-detected vehicle box, then aggressively
-restored before OCR.
+Localisation runs two ways and merges the results:
 
-The recovery chain matters more than the detector on this grid: plates run
-20-40 px wide at night with motion blur and headlight bloom.
+  * A single-class YOLO plate detector (``plate_detect.py``), when its weights
+    are present. Far more precise than morphology at night, where a lit grille,
+    a rear light cluster and a bumper reflector all look plate-shaped.
+  * Classical morphology inside the vehicle box -- blackhat, Sobel, close,
+    contour filter. Costs nothing, needs no weights, and still occasionally
+    finds a plate at an angle the model was not trained on.
+
+The recovery chain that follows matters more than either localiser on this grid:
+plates run 20-40 px wide at night with motion blur and headlight bloom, so the
+hard question is "are there enough pixels on the glyphs", not "where is it".
 """
 from __future__ import annotations
 
@@ -15,6 +19,8 @@ from dataclasses import dataclass
 
 import cv2
 import numpy as np
+
+from . import plate_detect
 
 # Indian plates are wide rectangles. Single-row plates sit near 4.5:1; the
 # two-row plates common on motorcycles and commercial vehicles are nearer 2:1.
@@ -53,14 +59,55 @@ def _candidate_score(w: int, h: int, region: np.ndarray) -> float:
     return 0.45 * aspect_score + 0.35 * contrast_score + 0.20 * size_score
 
 
+def _learned_candidates(vehicle_crop: np.ndarray) -> list[PlateCandidate]:
+    """Plate boxes from the learned detector, scored above every morphological one.
+
+    The +1.0 offset is not a confidence claim -- it is a strict ordering. When
+    the model says "the plate is here", that answer should be tried first, and
+    the morphological candidates remain only as a fallback for the frames it
+    misses. Both still go through the same restoration and OCR voting, so a bad
+    learned box loses the vote on its own merits.
+    """
+    candidates: list[PlateCandidate] = []
+    for x, y, w, h, confidence in plate_detect.find_plates(vehicle_crop):
+        image = vehicle_crop[y:y + h, x:x + w]
+        if image.size == 0:
+            continue
+        candidates.append(PlateCandidate(x=x, y=y, w=w, h=h,
+                                         score=1.0 + confidence,
+                                         image=image.copy()))
+    return candidates
+
+
+def _iou(a: PlateCandidate, b: PlateCandidate) -> float:
+    """Overlap between two candidates, used to drop duplicates across localisers."""
+    x0, y0 = max(a.x, b.x), max(a.y, b.y)
+    x1 = min(a.x + a.w, b.x + b.w)
+    y1 = min(a.y + a.h, b.y + b.h)
+    if x1 <= x0 or y1 <= y0:
+        return 0.0
+    overlap = (x1 - x0) * (y1 - y0)
+    return overlap / float(a.w * a.h + b.w * b.h - overlap)
+
+
 def find_plate_candidates(vehicle_crop: np.ndarray, *, max_candidates: int = 3
                           ) -> list[PlateCandidate]:
-    """Locate plate-shaped regions inside a vehicle crop."""
+    """Locate plate-shaped regions inside a vehicle crop.
+
+    Learned candidates first, then morphological ones that do not simply repeat
+    a box already found. Every candidate is OCR'd and the best read wins, so
+    ordering is about spending the OCR budget well rather than about excluding
+    anything.
+    """
     if vehicle_crop is None or vehicle_crop.size == 0:
         return []
     h, w = vehicle_crop.shape[:2]
     if w < MIN_PLATE_WIDTH_PX or h < 12:
         return []
+
+    learned = _learned_candidates(vehicle_crop)
+    if len(learned) >= max_candidates:
+        return learned[:max_candidates]
 
     gray = cv2.cvtColor(vehicle_crop, cv2.COLOR_BGR2GRAY)
 
@@ -101,14 +148,19 @@ def find_plate_candidates(vehicle_crop: np.ndarray, *, max_candidates: int = 3
         if region.size == 0:
             continue
 
-        candidates.append(PlateCandidate(
+        candidate = PlateCandidate(
             x=cx, y=cy, w=cw, h=ch,
             score=_candidate_score(cw, ch, region),
             image=vehicle_crop[cy:cy + ch, cx:cx + cw].copy(),
-        ))
+        )
+        # Skip anything the learned detector already found. Re-reading the same
+        # pixels cannot change the answer and costs a full OCR pass.
+        if any(_iou(candidate, existing) > 0.5 for existing in learned):
+            continue
+        candidates.append(candidate)
 
     candidates.sort(key=lambda c: c.score, reverse=True)
-    return candidates[:max_candidates]
+    return (learned + candidates)[:max_candidates]
 
 
 def restore(plate_img: np.ndarray, *, target_height: int = 96) -> np.ndarray:

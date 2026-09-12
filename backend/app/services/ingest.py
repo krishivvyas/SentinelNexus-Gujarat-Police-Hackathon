@@ -131,12 +131,23 @@ class CameraIngest:
 
         evidence_path = None
         plate_crop_path = None
+        stamp = int(time.time() * 1000)
         if track.best_frame is not None:
-            stamp = int(time.time() * 1000)
             name = f"{self.camera_id}_{track.track_id}_{stamp}.jpg"
             path = EVIDENCE_DIR / name
             cv2.imwrite(str(path), track.best_frame, [cv2.IMWRITE_JPEG_QUALITY, 82])
             evidence_path = f"evidence/{name}"
+
+        # The plate region itself, written only when a read was accepted. Kept
+        # flat in the evidence directory rather than a subfolder so the existing
+        # /api/evidence/{filename} route serves it unchanged, and at quality 92
+        # rather than 82 -- this crop is 40 px tall and is the one image an
+        # operator zooms into to check a reading by eye.
+        if track.best_plate_crop is not None and getattr(track.best_plate_crop, "size", 0):
+            name = f"plate_{self.camera_id}_{track.track_id}_{stamp}.jpg"
+            cv2.imwrite(str(EVIDENCE_DIR / name), track.best_plate_crop,
+                        [cv2.IMWRITE_JPEG_QUALITY, 92])
+            plate_crop_path = f"evidence/{name}"
 
         with SessionLocal() as db:
             sighting = Sighting(
@@ -225,6 +236,14 @@ class CameraIngest:
                             result = read_plate(prepare_for_ocr(candidate.image))
                             if result.text:
                                 track.voter.add(result)
+                                # Keep the region this read came from, if it is
+                                # the best this track has produced. The evidence
+                                # frame shows the vehicle; this shows the plate,
+                                # which is the thing the claim is about.
+                                if (candidate.image is not None
+                                        and result.confidence > track.best_plate_confidence):
+                                    track.best_plate_confidence = result.confidence
+                                    track.best_plate_crop = candidate.image.copy()
                                 break     # one accepted read per frame is enough
 
                 for track in finished:

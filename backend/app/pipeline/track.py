@@ -59,6 +59,12 @@ class Track:
     voter: PlateVoter = field(default_factory=PlateVoter)
     best_frame: object = None              # numpy array, highest-confidence view
     best_confidence: float = 0.0
+    # The plate region that produced this track's best accepted read, kept so a
+    # sighting can show the operator *what was actually read* rather than a
+    # picture of the whole car with the claim written underneath it. Held only
+    # for an accepted read: a crop that OCR rejected is not evidence of a plate.
+    best_plate_crop: object = None         # numpy array, the plate region
+    best_plate_confidence: float = 0.0
     label_votes: dict[str, int] = field(default_factory=dict)
     start_centre: tuple[float, float] | None = None
     max_drift_px: float = 0.0              # furthest the centre ever got from start

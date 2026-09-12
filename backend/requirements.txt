@@ -1,8 +1,13 @@
 # Sentinel Nexus backend.
 #
 # Deliberately absent:
-#   PyTorch  -- detection runs on OpenCV DNN (ONNX). Torch also clashes with
-#               PaddlePaddle over DLLs on Windows when both load in one process.
+#   PyTorch  -- detection runs YOLO11 on ONNX Runtime, and OpenCV DNN is the
+#               fallback. Neither needs Torch, which additionally clashes with
+#               PaddlePaddle over DLLs on Windows when both load in one process
+#               -- and PaddleOCR is not optional here, it reads the burned-in
+#               overlay clock every event timestamp comes from.
+#   ultralytics -- pulls Torch in transitively, for an API we do not need once
+#               the weights are exported.
 #   Anaconda -- use a clean venv; a --system-site-packages venv mixes numpy-1.x
 #               compiled wheels with numpy 2.x and breaks pandas at import.
 #
@@ -22,6 +27,11 @@ reportlab==4.2.5
 
 numpy==1.26.4
 opencv-contrib-python==4.11.0.86
+
+# YOLO11 inference. A ~15 MB wheel with no CUDA payload -- the whole reason
+# detection could be upgraded from YOLOv4-tiny without taking on Torch.
+onnxruntime==1.20.1
+
 paddlepaddle==3.0.0
 paddleocr==2.9.1
 

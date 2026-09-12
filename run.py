@@ -3,7 +3,8 @@
 This script:
 1. Validates or creates the Python virtual environment (.venv-clean).
 2. Installs any missing dependencies automatically.
-3. Downloads YOLOv4-tiny weights if missing (~24 MB).
+3. Downloads the detector weights if missing (YOLO11 ONNX ~38 MB, plus the
+   YOLOv4-tiny fallback ~24 MB).
 4. Seeds the database (users, 30 cameras, watchlist) if not already initialized.
 5. Launches the Sentinel Nexus server on http://localhost:8000 and opens the browser.
 
@@ -44,6 +45,26 @@ YOLO_WEIGHTS_URL = "https://github.com/AlexeyAB/darknet/releases/download/yolov4
 YOLO_WEIGHTS_PATH = MODELS_DIR / "yolov4-tiny.weights"
 YOLO_CFG_URL = "https://raw.githubusercontent.com/AlexeyAB/darknet/master/cfg/yolov4-tiny.cfg"
 YOLO_CFG_PATH = MODELS_DIR / "yolov4-tiny.cfg"
+
+# YOLO11 ONNX exports -- the primary detector. Pre-exported so that nothing here
+# needs PyTorch or the ultralytics package just to produce a .onnx file.
+#
+# (filename, url, approx MB, required)
+# Only yolo11s is required: it is what the default "balanced" profile loads, and
+# it measured best on this grid. The others are optional and the launcher does
+# not fail without them -- detect.py degrades through the ladder to YOLOv4-tiny.
+ONNX_BASE = "https://huggingface.co/giangndm/yolo11-onnx/resolve/main"
+ONNX_MODELS = [
+    ("yolo11s.onnx", f"{ONNX_BASE}/yolo11s_640.onnx", 38, True),
+    ("yolo11n.onnx", f"{ONNX_BASE}/yolo11n_640.onnx", 11, False),
+    ("yolo11m.onnx", f"{ONNX_BASE}/yolo11m_640.onnx", 80, False),
+    # Learned plate localiser. Ships disabled -- it measured zero detections on
+    # this grid's night footage -- but is fetched so that enabling it on better
+    # cameras needs no network access. See pipeline/plate_detect.py.
+    ("plate-detector.onnx",
+     "https://huggingface.co/morsetechlab/yolov11-license-plate-detection/"
+     "resolve/main/license-plate-finetune-v1n.onnx", 10, False),
+]
 
 
 def print_banner():
@@ -149,21 +170,64 @@ def check_and_install_deps():
     print("[+] Packages installed successfully.")
 
 
+def _download(url: str, path, label: str, min_bytes: int) -> bool:
+    """Fetch one model file, writing to a temp name so a partial file is never
+    left looking complete.
+
+    A truncated .onnx is worse than a missing one: it loads far enough to fail
+    with "Protobuf parsing failed" at the first frame, which reads as a code bug
+    rather than a bad download.
+    """
+    if path.exists() and path.stat().st_size >= min_bytes:
+        return True
+    partial = path.with_suffix(path.suffix + ".part")
+    try:
+        print(f"[*] Downloading {label} ...")
+        urllib.request.urlretrieve(url, partial)
+        if partial.stat().st_size < min_bytes:
+            raise OSError(f"got {partial.stat().st_size} bytes, "
+                          f"expected at least {min_bytes}")
+        partial.replace(path)
+        print(f"[+] Saved: {path.name}")
+        return True
+    except Exception as exc:
+        print(f"[!] Could not download {label}: {exc}")
+        partial.unlink(missing_ok=True)
+        return False
+
+
 def check_and_download_models():
-    """Ensure YOLOv4-tiny weights and config exist."""
+    """Ensure the detector weights exist.
+
+    YOLO11 (ONNX Runtime) is the primary detector; YOLOv4-tiny stays as the
+    fallback so the platform still detects if the ONNX fetch fails on a
+    restricted network.
+    """
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
     if not YOLO_CFG_PATH.exists():
-        print(f"[*] Downloading YOLOv4-tiny config ...")
+        print("[*] Downloading YOLOv4-tiny config ...")
         urllib.request.urlretrieve(YOLO_CFG_URL, YOLO_CFG_PATH)
         print(f"[+] Saved: {YOLO_CFG_PATH}")
 
-    if not YOLO_WEIGHTS_PATH.exists() or YOLO_WEIGHTS_PATH.stat().st_size < 1000000:
-        print(f"[*] Downloading YOLOv4-tiny weights (~24 MB) ...")
-        urllib.request.urlretrieve(YOLO_WEIGHTS_URL, YOLO_WEIGHTS_PATH)
-        print(f"[+] Downloaded: {YOLO_WEIGHTS_PATH}")
+    _download(YOLO_WEIGHTS_URL, YOLO_WEIGHTS_PATH,
+              "YOLOv4-tiny weights (~24 MB, fallback detector)", 1_000_000)
+
+    missing_required = []
+    for filename, url, megabytes, required in ONNX_MODELS:
+        ok = _download(url, MODELS_DIR / filename,
+                       f"{filename} (~{megabytes} MB)",
+                       int(megabytes * 0.9 * 1024 * 1024))
+        if not ok and required:
+            missing_required.append(filename)
+
+    if missing_required:
+        print("[!] Primary YOLO11 weights are missing: "
+              f"{', '.join(missing_required)}")
+        print("    Detection will fall back to YOLOv4-tiny, which finds "
+              "roughly half as many vehicles on this grid's night footage.")
     else:
-        print("[+] YOLO model weights ready.")
+        print("[+] Detector weights ready (YOLO11 + YOLOv4-tiny fallback).")
 
 
 def check_and_seed_db():

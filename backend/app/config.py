@@ -16,6 +16,40 @@ DATA_DIR = BASE_DIR / "data"
 EVIDENCE_DIR = DATA_DIR / "evidence"
 MODELS_DIR = BASE_DIR.parent / "models"
 
+#: Per-profile pipeline sizing. ``detector_model`` is consumed by ``detect.py``
+#: when ``detector == "auto"``, rather than being written onto the settings
+#: object, so an explicit SENTINEL_DETECTOR always wins over the profile.
+#:
+#: Measured on a 16-core CPU-only host over 40 night frames sampled from this
+#: grid's own evidence store, cost per 1080p frame and vehicles found:
+#:
+#:   yolov4-tiny   75 ms   1.30 vehicles/frame   (the previous detector)
+#:   yolo11n       40 ms   2.33 vehicles/frame   1.79x
+#:   yolo11s       80 ms   2.38 vehicles/frame   1.83x
+#:   yolo11m      221 ms   1.95 vehicles/frame   1.50x
+#:
+#: Note the shape of that table. yolo11m finds *fewer* vehicles than yolo11s on
+#: this footage while costing 2.8x more -- a larger model is better calibrated
+#: and therefore more willing to call a dim night blob "not a vehicle", which is
+#: the wrong trade when the blob usually is one. So "high" does not mean a
+#: bigger model here; it means the same model fed more cameras and more frames.
+#: yolo11m stays downloadable and can be pinned with SENTINEL_DETECTOR for
+#: daylight footage, where that calibration is an asset rather than a cost.
+#:
+#: Those are clean-process figures. Loaded -- API, OCR and ORM resident in the
+#: same process, which is exactly how this deploys -- costs run roughly 3x
+#: higher, and the sample intervals below are sized against the loaded number,
+#: not the clean one. Earlier values of 1 s and 2 s for "low" only looked
+#: sufficient because they were checked against a bare benchmark.
+PROFILE_PRESETS: dict[str, dict] = {
+    "low":      {"sample_interval_ms": 3000, "max_concurrent_streams": 2,
+                 "inference_width": 512, "detector_model": "yolo11n"},
+    "balanced": {"sample_interval_ms": 400, "max_concurrent_streams": 4,
+                 "inference_width": 640, "detector_model": "yolo11s"},
+    "high":     {"sample_interval_ms": 250, "max_concurrent_streams": 8,
+                 "inference_width": 736, "detector_model": "yolo11s"},
+}
+
 
 class Settings(BaseSettings):
     # env_file must be absolute: run.py chdir's into backend/ before starting
@@ -55,6 +89,53 @@ class Settings(BaseSettings):
     # backend/data/cameras.json.
     sentinel_catalogue_url: str = ""
 
+    # --- Basemap ------------------------------------------------------------
+    # Three ways to put geography under the camera pins, in the order the
+    # client prefers them.
+    #
+    # 1. Vector tiles (the default). OpenFreeMap serves the whole OpenMapTiles
+    #    planet with no API key, no account, no watermark and no rate limit.
+    #    Because the tiles are vector, the *styling* is ours: static/js/
+    #    basemap.js paints them in a palette built to sit under this
+    #    interface's signal hues rather than compete with them. This is what
+    #    replaced the near-black canvas the map used to be.
+    #
+    # 2. Raster tiles, when an operator has their own tile server:
+    #       SENTINEL_BASEMAP_URL=https://tiles.internal.gov/dark/{z}/{x}/{y}.png
+    #    Set that and it is used instead of the vector basemap.
+    #
+    # 3. Neither. On an isolated network where no outbound tile fetch resolves,
+    #    clear SENTINEL_BASEMAP_VECTOR_TILES and the map falls back to drawing
+    #    its geography from the GIS layers this platform fetched and cached for
+    #    itself -- district boundaries, national highways, the city street grid,
+    #    from OpenStreetMap via Overpass. Less pretty, and every line on it is
+    #    data we hold and can name a source for.
+    #
+    # Note the free *raster* dark basemaps are still excluded on purpose: CARTO
+    # stamps "API KEY REQUIRED" diagonally across anonymous tiles and the OSM
+    # volunteer servers answer 418 to application traffic. Vector tiles are what
+    # made a real basemap possible without a key on somebody's billing account.
+    basemap_url: str = Field(default="", validation_alias="SENTINEL_BASEMAP_URL")
+    basemap_attribution: str = Field(
+        default="", validation_alias="SENTINEL_BASEMAP_ATTRIBUTION")
+
+    #: TileJSON endpoint for the vector basemap. Empty disables it entirely.
+    basemap_vector_tiles: str = Field(
+        default="https://tiles.openfreemap.org/planet",
+        validation_alias="SENTINEL_BASEMAP_VECTOR_TILES")
+    #: Glyph endpoint for the vector basemap's labels. MapLibre drops a whole
+    #: symbol layer without a word of complaint when its fontstack 404s, so this
+    #: must point at a server that actually carries "Noto Sans Regular" and
+    #: "Noto Sans Bold" -- the two faces basemap.js asks for.
+    basemap_vector_glyphs: str = Field(
+        default="https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf",
+        validation_alias="SENTINEL_BASEMAP_VECTOR_GLYPHS")
+    basemap_vector_attribution: str = Field(
+        default='&copy; <a href="https://openmaptiles.org/">OpenMapTiles</a> '
+                '&copy; <a href="https://www.openstreetmap.org/copyright">'
+                "OpenStreetMap</a> contributors",
+        validation_alias="SENTINEL_BASEMAP_VECTOR_ATTRIBUTION")
+
     # Auth
     jwt_secret: str = "dev-only-change-in-production"
     jwt_algorithm: str = "HS256"
@@ -67,6 +148,43 @@ class Settings(BaseSettings):
     # Hardware profile. "low" targets an old laptop with no GPU; "balanced" is the
     # default; "high" only makes sense with plenty of cores. Set SENTINEL_PROFILE.
     profile: str = Field(default="balanced", validation_alias="SENTINEL_PROFILE")
+
+    # --- Detector -----------------------------------------------------------
+    # "auto" picks the YOLO11 variant for the hardware profile and degrades to
+    # the next lighter one, then to YOLOv4-tiny, if weights are missing. Name a
+    # model (yolo11n/s/m/l) to pin it, or "yolov4-tiny" to force the old path.
+    detector: str = Field(default="auto", validation_alias="SENTINEL_DETECTOR")
+    # 0 lets the ONNX session take all cores but one, leaving room for the
+    # decoder and the API. Pin it when sharing the box with something else.
+    detector_threads: int = Field(default=0, validation_alias="SENTINEL_DETECTOR_THREADS")
+    # YOLO11 scores are better calibrated than YOLOv4-tiny's, so a slightly
+    # lower floor here recovers small distant vehicles without a flood of
+    # false boxes. Raised from the old 0.30 only after checking the extra
+    # detections on this grid were real vehicles.
+    detector_conf: float = Field(default=0.25, validation_alias="SENTINEL_DETECTOR_CONF")
+    detector_nms: float = 0.45
+
+    # --- Learned plate localisation -----------------------------------------
+    # A single-class YOLO plate detector run inside each vehicle box, merged
+    # with the morphological candidates in plate.py.
+    #
+    # OFF by default, and that default is a measurement rather than a
+    # preference. Over 55 vehicle crops from this grid's own evidence store it
+    # produced *zero* detections -- identical output to morphology alone, for an
+    # extra 39 ms per crop. Raw scores are ~0.002 on night crops and peak at
+    # 0.16 on the brightest frames in the store, i.e. never near any usable
+    # threshold. These are wide-angle night overview PTZ cameras where plates
+    # run 20-40 px, and the model has nothing to lock onto.
+    #
+    # The path is kept and is correct: point this platform at an actual ANPR
+    # camera, or at daylight footage, and turning it on is a one-line change.
+    # Shipping it ON would be a 39 ms/crop regression bought with nothing.
+    plate_detector_enabled: bool = Field(
+        default=False, validation_alias="SENTINEL_PLATE_DETECTOR")
+    # Deliberately permissive. A missed plate is unrecoverable; a false plate
+    # box costs one OCR pass and then loses the multi-frame vote.
+    plate_detector_conf: float = Field(
+        default=0.20, validation_alias="SENTINEL_PLATE_DETECTOR_CONF")
 
     # Pipeline tuning. Defaults suit "balanced" and are overridden in apply_profile().
     sample_interval_ms: int = 400          # PTS spacing between processed frames
@@ -83,24 +201,17 @@ class Settings(BaseSettings):
         sampled and how many streams are open at once. A low-end box processes
         fewer frames from fewer cameras rather than falling behind on all of them.
         """
-        presets = {
-            # Sized from the loaded case, not a clean benchmark process.
-            # Detection costs ~233 ms per 1080p frame at 2 threads in a bare
-            # process, but ~775 ms once the full application (API, OCR, ORM) is
-            # resident in the same process -- which is exactly how it is deployed.
-            # That yields ~1.6 detections/s, so a 3 s sample across 2 cameras
-            # (0.67/s required) leaves a genuine 2.4x margin. Earlier values of
-            # 1 s and 2 s only looked sufficient against the clean-process number.
-            "low":      {"sample_interval_ms": 3000, "max_concurrent_streams": 2,
-                         "inference_width": 512},
-            "balanced": {"sample_interval_ms": 400, "max_concurrent_streams": 4,
-                         "inference_width": 640},
-            "high":     {"sample_interval_ms": 250, "max_concurrent_streams": 8,
-                         "inference_width": 736},
-        }
-        for key, value in presets.get(self.profile.lower(), presets["balanced"]).items():
-            setattr(self, key, value)
+        for key, value in self._preset().items():
+            if key != "detector_model":
+                setattr(self, key, value)
         return self
+
+    def _preset(self) -> dict:
+        return PROFILE_PRESETS.get(self.profile.lower(), PROFILE_PRESETS["balanced"])
+
+    def profile_detector(self) -> str:
+        """The YOLO11 variant this hardware profile asks for."""
+        return self._preset()["detector_model"]
 
     def hls_headers(self) -> dict[str, str]:
         """Auth headers for the HLS portal, empty when no session is configured."""

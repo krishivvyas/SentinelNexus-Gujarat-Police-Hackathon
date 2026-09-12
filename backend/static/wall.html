@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<meta name="description" content="Sentinel Nexus video wall — every federated camera, activated on demand.">
+<title>Sentinel Nexus — Video Wall</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+
+<!-- Theme, applied before the first paint.
+     This duplicates resolve()/applyTheme() from js/theme.js, which is the
+     SYNC_NOTE that module refers to. It is duplicated rather than imported
+     because a module script cannot run before paint: importing it would give a
+     light-mode operator a black flash on every single navigation, which is
+     exactly the thing they picked light mode to stop having. Keep the storage
+     key, the valid values and the default in step with theme.js. -->
+<script>
+  (function () {
+    try {
+      var pref = localStorage.getItem('sentinel.theme');
+      if (pref !== 'light' && pref !== 'dark' && pref !== 'auto') pref = 'dark';
+      document.documentElement.dataset.theme = pref === 'auto'
+        ? (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
+        : pref;
+    } catch (e) {
+      document.documentElement.dataset.theme = 'dark';
+    }
+  })();
+</script>
+
+<link rel="stylesheet" href="/static/css/tokens.css">
+<link rel="stylesheet" href="/static/css/app.css">
+<link rel="stylesheet" href="/static/css/wall.css">
+
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect width='24' height='24' rx='6' fill='%234d9dff'/><path d='M12 5 6 7.4v3.9c0 3.4 2.6 6.4 6 7.2 3.4-.8 6-3.8 6-7.2V7.4L12 5Z' fill='none' stroke='%23041020' stroke-width='1.8'/></svg>">
+</head>
+<body class="wall-page">
+
+<div id="wall-shell">
+  <header id="wall-top"></header>
+  <div id="wall-bar"></div>
+  <main id="wall-grid" aria-label="Camera wall"></main>
+  <footer id="wall-foot"></footer>
+</div>
+
+<div id="focus" hidden></div>
+<div id="toasts" aria-live="polite" aria-atomic="false"></div>
+
+<noscript>
+  <style>
+    .ns-fallback { color: #e9eff7; background: #06080c; }
+    :root[data-theme="light"] .ns-fallback { color: #0e1620; background: #e8ecf3; }
+    :root[data-theme="light"] .ns-fallback p { color: #5d6b82 !important; }
+  </style>
+  <div class="ns-fallback" style="padding:40px;font:14px system-ui;height:100vh">
+    <h1 style="font-size:20px;margin:0 0 12px">Sentinel Nexus — Video Wall</h1>
+    <p style="color:#a3b3c7;max-width:52ch;line-height:1.6">
+      The wall needs JavaScript. The MJPEG endpoints underneath it do not — each
+      camera is a plain image stream at
+      <code>/api/cameras/&lt;id&gt;/live</code>, documented at
+      <a href="/docs" style="color:#4d9dff">/docs</a>.
+    </p>
+  </div>
+</noscript>
+
+<script type="module" src="/static/js/wall-page.js"></script>
+</body>
+</html>

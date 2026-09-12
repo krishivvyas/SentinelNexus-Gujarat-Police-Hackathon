@@ -5,20 +5,20 @@ import asyncio
 import json
 from datetime import datetime
 
-from fastapi import (APIRouter, Depends, HTTPException, Query, Request,
-                     WebSocket, WebSocketDisconnect)
+from fastapi import (APIRouter, Depends, File, Form, HTTPException, Query,
+                     Request, UploadFile, WebSocket, WebSocketDisconnect)
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..config import DATA_DIR, EVIDENCE_DIR
+from ..config import DATA_DIR, EVIDENCE_DIR, settings
 from ..db import get_db
 from ..models import Camera, LocationAccuracy, Role, Sighting, User
 from ..services import alerts as alert_service
 from ..services import ingest as ingest_service
-from ..services import registry, reports, search, security
+from ..services import gis, health, importer, registry, reports, search, security
 from ..services import watchlist as wl
 
 router = APIRouter(prefix="/api")
@@ -391,12 +391,23 @@ async def alert_stream(websocket: WebSocket):
 
 @router.get("/stats")
 def stats(db: Session = Depends(get_db), _: User = Depends(security.require_any)):
+    from ..pipeline import detect as detect_pipeline
+    from ..pipeline import plate_detect
+
     cameras = registry.registry_stats(db)
     return {
         "cameras": cameras,
         "alerts": alert_service.alert_stats(db),
         "detections": reports.summary(db),
         "ingest": ingest_service.manager.status(),
+        # Which model produced these counts. An operator reading a detection
+        # total needs to know whether the primary detector is running or a
+        # fallback silently took over after a failed weights download.
+        "models": {
+            "vehicle": detect_pipeline.active_backend(),
+            "plate": plate_detect.describe(),
+            "profile": settings.profile,
+        },
     }
 
 
@@ -442,3 +453,214 @@ def audit(limit: int = Query(200, le=1000), db: Session = Depends(get_db),
     return [{"ts": a.ts, "username": a.username, "action": a.action,
              "entity": a.entity, "entity_id": a.entity_id, "detail": a.detail}
             for a in security.list_audit(db, limit=limit)]
+
+
+# -------------------------------------------------------------------- GIS layers
+
+@router.get("/config/map")
+def map_config(_: User = Depends(security.require_any)):
+    """Basemap configuration for the client.
+
+    Three fields, checked by the client in this order: an operator's own raster
+    tile server, the keyless vector basemap, and -- if neither is set -- the GIS
+    layers this platform fetched and cached for itself. All three empty means
+    "draw the geography from our own data", not "the map is broken". See
+    Settings.basemap_url for the whole rationale.
+    """
+    return {
+        "basemap_url": settings.basemap_url,
+        "basemap_attribution": settings.basemap_attribution,
+        "vector_tiles_url": settings.basemap_vector_tiles,
+        "vector_glyphs_url": settings.basemap_vector_glyphs,
+        "vector_attribution": settings.basemap_vector_attribution,
+        # Layers the client switches on by itself when there is no basemap at
+        # all, so the map still has geography under the pins.
+        "base_geography": ["districts", "highways", "trunk", "city"],
+    }
+
+
+@router.get("/config/live")
+def live_config(_: User = Depends(security.require_any)):
+    """What the client needs to know before opening live previews.
+
+    ``max_concurrent_streams`` is a hard property of this grid rather than a UI
+    preference: each viewer gets its own stream copy, and at ten parallel opens
+    five cameras returned no frames at all where the same five recovered when
+    opened serially. The video wall surfaces this number so an operator can see
+    why the ninth tile is queued instead of guessing that it is broken.
+    """
+    return {
+        "max_concurrent_streams": settings.max_concurrent_streams,
+        "profile": settings.profile,
+        # Measured open times on this grid ranged 1.8 s to 275 s, which is why
+        # a tile that has not painted yet is not evidence of a dead camera.
+        "session_seconds": 900,
+    }
+
+
+@router.get("/gis/layers")
+def gis_layers(_: User = Depends(security.require_any)):
+    """Every context layer and whether it has been fetched yet."""
+    return gis.catalogue()
+
+
+@router.get("/gis/layers/{key}")
+def gis_layer(key: str, _: User = Depends(security.require_any)):
+    """Cached GeoJSON for one layer.
+
+    404 rather than an empty FeatureCollection when nothing has been fetched:
+    an empty collection is indistinguishable from "this region genuinely has
+    none of these", and the map must not imply the second when it means the
+    first.
+    """
+    try:
+        data = gis.geojson(key)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Unknown layer") from None
+    if data is None:
+        raise HTTPException(status_code=404,
+                            detail="Layer not fetched yet; refresh it first")
+    return data
+
+
+@router.post("/gis/layers/{key}/refresh")
+def gis_refresh(key: str, user: User = Depends(security.require_operator)):
+    """Re-fetch one layer from OpenStreetMap.
+
+    Deliberately an explicit operator action, never automatic on page load:
+    Overpass is a shared free service that rate-limits aggressively, and a
+    dashboard that refreshed on every open would be banned within a day.
+    """
+    try:
+        return gis.refresh_async(key).to_dict()
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Unknown layer") from None
+
+
+# ----------------------------------------------------------------- camera health
+
+@router.get("/health/cameras")
+def camera_health(db: Session = Depends(get_db),
+                  _: User = Depends(security.require_any)):
+    """Registry-reported availability against measured availability."""
+    cameras = registry.list_cameras(db)
+    return {"summary": health.summary(cameras), "results": health.all_results()}
+
+
+@router.post("/health/probe")
+async def probe_cameras(camera_ids: list[str], force: bool = False,
+                        db: Session = Depends(get_db),
+                        user: User = Depends(security.require_operator)):
+    """Probe the named cameras and report what was actually measured.
+
+    Probes run on a thread because each one opens a real capture and blocks for
+    up to 25 s; they are serialised behind the same global stream semaphore the
+    ingest workers use, because this grid degrades badly under parallel opens.
+    """
+    cameras = [c for c in (registry.get_camera(db, cid) for cid in camera_ids[:12])
+               if c is not None]
+    if not cameras:
+        raise HTTPException(status_code=404, detail="No such cameras")
+
+    def _run() -> list:
+        return [health.probe(camera, force=force) for camera in cameras]
+
+    results = await asyncio.to_thread(_run)
+
+    for result in results:
+        health.apply_to_registry(db, result)
+    security.record_audit(db, username=user.username, action="HEALTH_PROBE",
+                          entity="camera", entity_id=",".join(camera_ids[:12]))
+    return {"results": [r.to_dict() for r in results],
+            "summary": health.summary(registry.list_cameras(db))}
+
+
+# -------------------------------------------------------------- registry import
+
+@router.get("/registry/template.csv")
+def registry_template(_: User = Depends(security.require_any)):
+    return Response(content=importer.template_csv(), media_type="text/csv",
+                    headers={"Content-Disposition":
+                             "attachment; filename=sentinel-camera-template.csv"})
+
+
+@router.post("/registry/import/preview")
+async def registry_import_preview(file: UploadFile = File(...),
+                                  _: User = Depends(security.require_operator)):
+    """Parse and validate an upload without writing anything.
+
+    Every mapping decision comes back labelled with how it was made -- exact
+    header, known synonym, or fuzzy match with its score -- so an operator can
+    see which columns the importer was sure about before any of it is saved.
+    """
+    raw = await file.read()
+    if len(raw) > 8 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File larger than 8 MB")
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        # Windows-authored government spreadsheets are frequently cp1252.
+        text = raw.decode("cp1252", errors="replace")
+    return importer.preview(text)
+
+
+@router.post("/registry/import/commit")
+async def registry_import_commit(file: UploadFile = File(...),
+                                 overrides: str = Form("{}"),
+                                 db: Session = Depends(get_db),
+                                 user: User = Depends(security.require_operator)):
+    """Write a reviewed import into the registry, auditing every field change."""
+    raw = await file.read()
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        text = raw.decode("cp1252", errors="replace")
+    try:
+        mapping_overrides = json.loads(overrides) if overrides else {}
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="overrides is not valid JSON") from None
+
+    result = importer.commit(db, text, actor=user.username,
+                             overrides=mapping_overrides)
+    security.record_audit(db, username=user.username, action="REGISTRY_IMPORT",
+                          entity="camera",
+                          detail=f"created={result['created']} "
+                                 f"updated={result['updated']} "
+                                 f"skipped={result['skipped']}")
+    return result
+
+
+# ---------------------------------------------------------------------- facets
+
+@router.get("/cameras/meta/facets")
+def camera_facets(db: Session = Depends(get_db),
+                  _: User = Depends(security.require_any)):
+    """Distinct values the map's layer panel filters on, with counts.
+
+    Ownership and capability are kept as separate facets on purpose. An operator
+    hunting a registration wants the cameras able to read one, whoever owns
+    them; an operator answering for their own estate wants the opposite.
+    """
+    cameras = registry.list_cameras(db)
+
+    def tally(attribute) -> list[dict]:
+        counts: dict[str, int] = {}
+        for camera in cameras:
+            value = attribute(camera)
+            if value:
+                counts[value] = counts.get(value, 0) + 1
+        return [{"value": v, "count": n}
+                for v, n in sorted(counts.items(), key=lambda kv: -kv[1])]
+
+    return {
+        "departments": tally(lambda c: c.department),
+        "districts": tally(lambda c: c.district),
+        "statuses": tally(lambda c: c.status.value if c.status else None),
+        "protocols": tally(lambda c: c.protocol),
+        "accuracy": tally(lambda c: c.location_accuracy.value
+                          if c.location_accuracy else None),
+        "clusters": tally(lambda c: f"Cluster {c.time_cluster}"
+                          if c.time_cluster is not None else None),
+        "anpr_capable": sum(bool(c.ai_enabled) for c in cameras),
+        "total": len(cameras),
+    }

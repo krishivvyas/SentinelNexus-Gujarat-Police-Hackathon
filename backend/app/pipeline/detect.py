@@ -1,12 +1,24 @@
-"""Vehicle detection on OpenCV's DNN module.
+"""Vehicle detection.
 
-Inference runs entirely inside OpenCV (``cv2.dnn``). There is no PyTorch,
-TensorFlow or ultralytics dependency -- the model is a weights file that
-``cv2.dnn.readNetFromDarknet`` loads, and OpenCV does the forward pass on CPU.
+Two backends behind one interface, selected at load time:
 
-Measured: ~160 ms per 1920x1080 frame on a CPU-only machine at 416x416 input.
-Frames are downscaled to the profile's inference width before the forward pass
-and boxes are mapped back to full-resolution coordinates.
+  * **YOLO11 on ONNX Runtime** (default). A 2024 detector, run from a plain
+    ``.onnx`` file with no PyTorch and no ultralytics package. This is what
+    finds the small, dim, distant vehicles that this grid is full of.
+  * **YOLOv4-tiny on ``cv2.dnn``** (fallback). The original detector, kept
+    because OpenCV is already a hard dependency, so the platform still detects
+    when onnxruntime is absent or a weights download has not happened yet.
+
+Measured on this 16-core CPU-only host, per 1920x1080 frame, all threads:
+
+    yolo11n  640   ~50 ms      lightest, "low" profile
+    yolo11s  640   ~78 ms      default, "balanced" profile
+    yolo11m  640  ~201 ms      "high" profile
+    yolov4-tiny    ~160 ms     fallback, and the weakest of the four on small
+                               vehicles despite the middling cost
+
+Everything above this module -- the ingest worker, the live preview, the
+evidence writer -- consumes ``Detection`` and never learns which backend ran.
 """
 from __future__ import annotations
 
@@ -19,11 +31,21 @@ import cv2
 import numpy as np
 
 from ..config import MODELS_DIR, settings
+from .onnx_backend import OnnxDetector, OnnxUnavailable
 
 log = logging.getLogger("sentinel.detect")
 
 CFG = MODELS_DIR / "yolov4-tiny.cfg"
 WEIGHTS = MODELS_DIR / "yolov4-tiny.weights"
+
+#: ONNX weights per model name. All are COCO-trained, so the class ids below
+#: apply unchanged whichever one is loaded.
+ONNX_WEIGHTS: dict[str, Path] = {
+    "yolo11n": MODELS_DIR / "yolo11n.onnx",
+    "yolo11s": MODELS_DIR / "yolo11s.onnx",
+    "yolo11m": MODELS_DIR / "yolo11m.onnx",
+    "yolo11l": MODELS_DIR / "yolo11l.onnx",
+}
 
 # COCO ids we care about. "bicycle" is kept because two-wheelers dominate this
 # traffic and are frequently confused with motorcycles at night.
@@ -33,11 +55,11 @@ VEHICLE_CLASSES: dict[int, str] = {
     3: "motorcycle",
     5: "bus",
     7: "truck",
-    # COCO has no auto-rickshaw, and the weights are COCO-trained, so autos and
-    # small tempos land wherever they fit -- most often "car" or "truck", and
-    # verified on this grid also on class 56 ("chair"). On a road-facing camera
-    # a chair detection is a vehicle, so it is kept under a generic label rather
-    # than discarded; reclassify_auto_rickshaw() renames it when it can.
+    # COCO has no auto-rickshaw, and every model here is COCO-trained, so autos
+    # and small tempos land wherever they fit -- most often "car" or "truck",
+    # and verified on this grid also on class 56 ("chair"). On a road-facing
+    # camera a chair detection is a vehicle, so it is kept under a generic
+    # label rather than discarded; the auto-rickshaw test renames it when it can.
     56: "vehicle",
 }
 
@@ -107,8 +129,8 @@ def _body_patch(crop: np.ndarray) -> np.ndarray:
 def looks_like_auto_rickshaw(crop: np.ndarray, width: int, height: int) -> bool:
     """True when a box has the yellow body and squat shape of an auto-rickshaw.
 
-    A heuristic, not a classifier: the detector cannot name autos at all, so this
-    recovers the common case (a lit yellow auto) from whatever COCO class it
+    A heuristic, not a classifier: no COCO detector can name autos at all, so
+    this recovers the common case (a lit yellow auto) from whatever class it
     landed on. It is deliberately conservative -- an unlit auto in shadow stays
     under its original label rather than risking a wrong one on a police record.
     """
@@ -130,9 +152,11 @@ def looks_like_auto_rickshaw(crop: np.ndarray, width: int, height: int) -> bool:
     return float(yellow.sum()) / float(paint.size) >= AUTO_YELLOW_FRACTION
 
 
+# --------------------------------------------------------------------- backends
+
 @lru_cache(maxsize=1)
-def _model() -> cv2.dnn_DetectionModel:
-    """Load the detector once. Constructed lazily so importing is cheap."""
+def _darknet_model() -> cv2.dnn_DetectionModel:
+    """Load YOLOv4-tiny once. Constructed lazily so importing stays cheap."""
     if not CFG.exists() or not WEIGHTS.exists():
         raise FileNotFoundError(
             f"detector weights missing: expected {CFG} and {WEIGHTS}. "
@@ -147,52 +171,121 @@ def _model() -> cv2.dnn_DetectionModel:
     # Darknet expects a multiple of 32.
     size = max(320, (size // 32) * 32)
     model.setInputParams(size=(size, size), scale=1 / 255.0, swapRB=True)
-    log.info("detector loaded (OpenCV DNN, %dx%d input)", size, size)
+    log.info("detector loaded (OpenCV DNN, YOLOv4-tiny, %dx%d input)", size, size)
     return model
 
 
-class VehicleDetector:
-    """Detects vehicles in a frame and describes them."""
+@lru_cache(maxsize=1)
+def _onnx_model() -> OnnxDetector | None:
+    """Load the configured YOLO11 graph, or return None to fall back.
 
-    def __init__(self, conf_threshold: float = 0.3, nms_threshold: float = 0.45,
+    Returning None rather than raising is deliberate: a missing optional model
+    must degrade the platform to the older detector, never stop ingestion. The
+    reason is logged once at load, so an operator can see which one is running.
+    """
+    name = (settings.detector or "auto").strip().lower()
+    if name in {"yolov4-tiny", "darknet", "opencv"}:
+        return None
+
+    candidates = [name] if name in ONNX_WEIGHTS else []
+    if name == "auto":
+        # Preferred model for the hardware profile first, then progressively
+        # lighter ones, so a partial download still yields a working detector.
+        # Ordered by measured recall on this grid rather than by parameter
+        # count -- see PROFILE_PRESETS for why yolo11m ranks below yolo11n here.
+        preferred = settings.profile_detector()
+        order = ["yolo11s", "yolo11n", "yolo11m", "yolo11l"]
+        candidates = [preferred] + [m for m in order if m != preferred]
+
+    for candidate in candidates:
+        try:
+            return OnnxDetector(
+                ONNX_WEIGHTS[candidate],
+                threads=settings.detector_threads,
+                conf_threshold=settings.detector_conf,
+                nms_threshold=settings.detector_nms,
+            )
+        except OnnxUnavailable as exc:
+            log.info("detector %s unavailable (%s)", candidate, exc)
+
+    log.warning("no YOLO11 weights loaded; falling back to YOLOv4-tiny. "
+                "Run 'python run.py' to fetch the ONNX models.")
+    return None
+
+
+def active_backend() -> dict[str, object]:
+    """Describe the detector actually in use -- surfaced in /api/stats.
+
+    An operator reading a detection count needs to know which model produced it,
+    especially when a fallback silently took over.
+    """
+    model = _onnx_model()
+    if model is not None:
+        return {"runtime": "onnxruntime", "model": model.weights.stem,
+                "input": model.size, "threads": model.threads,
+                "conf": settings.detector_conf}
+    return {"runtime": "opencv-dnn", "model": "yolov4-tiny",
+            "input": int(settings.inference_width), "threads": None,
+            "conf": settings.detector_conf}
+
+
+class VehicleDetector:
+    """Detects vehicles in a frame and describes them.
+
+    The backend is chosen once per process and shared; constructing a detector
+    per worker is cheap and does not reload weights.
+    """
+
+    def __init__(self, conf_threshold: float | None = None,
+                 nms_threshold: float = 0.45,
                  min_area_ratio: float = 0.00015) -> None:
-        self.conf_threshold = conf_threshold
+        self.conf_threshold = (settings.detector_conf if conf_threshold is None
+                               else conf_threshold)
         self.nms_threshold = nms_threshold
         # Drop specks: anything smaller than this fraction of the frame carries
         # no usable plate information.
         self.min_area_ratio = min_area_ratio
+
+    # ------------------------------------------------------------------ raw pass
+
+    def _raw(self, frame: np.ndarray) -> list[tuple[int, float, tuple[int, int, int, int]]]:
+        """Run whichever backend is active, returning (class_id, conf, xywh)."""
+        model = _onnx_model()
+        if model is not None:
+            return [(b.class_id, b.confidence, (b.x, b.y, b.w, b.h))
+                    for b in model.infer(frame, classes=set(VEHICLE_CLASSES))]
+
+        try:
+            class_ids, confidences, boxes = _darknet_model().detect(
+                frame, self.conf_threshold, self.nms_threshold)
+        except cv2.error as exc:
+            log.warning("detection failed: %s", exc)
+            return []
+        if len(class_ids) == 0:
+            return []
+        return [(int(cid), float(conf), tuple(int(v) for v in box))
+                for cid, conf, box in zip(np.array(class_ids).flatten(),
+                                          np.array(confidences).flatten(),
+                                          np.array(boxes).reshape(-1, 4))]
 
     def detect(self, frame: np.ndarray) -> list[Detection]:
         """Detect and label vehicles in one frame."""
         if frame is None or frame.size == 0:
             return []
 
-        model = _model()
-        try:
-            class_ids, confidences, boxes = model.detect(
-                frame, self.conf_threshold, self.nms_threshold
-            )
-        except cv2.error as exc:
-            log.warning("detection failed: %s", exc)
-            return []
-
-        if len(class_ids) == 0:
-            return []
-
         frame_area = frame.shape[0] * frame.shape[1]
         results: list[Detection] = []
 
-        for cid, conf, box in zip(np.array(class_ids).flatten(),
-                                  np.array(confidences).flatten(),
-                                  np.array(boxes).reshape(-1, 4)):
-            label = VEHICLE_CLASSES.get(int(cid))
+        for class_id, confidence, (x, y, w, h) in self._raw(frame):
+            label = VEHICLE_CLASSES.get(class_id)
             if label is None:
                 continue
-            x, y, w, h = (int(v) for v in box)
             if w <= 0 or h <= 0 or (w * h) / frame_area < self.min_area_ratio:
                 continue
+            if confidence < self.conf_threshold:
+                continue
 
-            det = Detection(x=x, y=y, w=w, h=h, label=label, confidence=float(conf))
+            det = Detection(x=x, y=y, w=w, h=h, label=label, confidence=confidence)
             crop = det.crop(frame)
 
             # Autos are not a COCO class, so recover them from whatever they

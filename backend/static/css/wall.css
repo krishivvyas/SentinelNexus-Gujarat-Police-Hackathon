@@ -1,0 +1,416 @@
+/* The video wall page.
+ *
+ * A wall is read from across a room, so the type is a step larger than the
+ * command centre's and the chrome is a step quieter. Everything that is not a
+ * camera picture is grey; the only colour on this page is status.
+ */
+
+body.wall-page { overflow: hidden; }
+
+#wall-shell {
+  display: grid;
+  grid-template-rows: var(--topbar-h) auto 1fr auto;
+  height: 100vh;
+  background:
+    radial-gradient(1200px 700px at 15% -10%, rgba(77, 157, 255, 0.05), transparent 60%),
+    var(--bg);
+}
+
+/* ------------------------------------------------------------------ header */
+
+#wall-top {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  padding: 0 var(--s4);
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  z-index: 20;
+}
+
+#wall-top .brand { text-decoration: none; color: inherit; }
+#wall-top .brand:hover .brand-name { color: var(--accent); }
+
+#wall-search { position: relative; flex: 1 1 auto; max-width: 420px; }
+#wall-search input {
+  width: 100%; height: 32px;
+  padding: 0 var(--s3) 0 32px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  color: var(--text);
+  font: inherit;
+  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+#wall-search input::placeholder { color: var(--text-faint); }
+#wall-search input:focus {
+  outline: none; border-color: var(--line-focus); background: var(--surface-3);
+}
+#wall-search .omni-icon {
+  position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+  color: var(--text-faint); pointer-events: none;
+}
+
+.wall-top-right {
+  margin-left: auto;
+  display: flex; align-items: center; gap: var(--s2);
+}
+.wall-top-right a.btn { text-decoration: none; }
+
+/* ---------------------------------------------------------------- controls */
+
+#wall-bar {
+  display: flex; align-items: center; gap: var(--s3);
+  flex-wrap: wrap;
+  padding: 9px var(--s4);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line);
+  z-index: 15;
+}
+
+.seg-group { display: flex; align-items: center; gap: var(--s2); }
+.seg-label {
+  font-size: var(--fs-micro); font-weight: 700;
+  letter-spacing: var(--tracking-caps); text-transform: uppercase;
+  color: var(--text-faint);
+}
+.seg {
+  display: inline-flex;
+  padding: 2px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+.seg-btn {
+  min-width: 30px; height: 22px;
+  padding: 0 9px;
+  border: none; border-radius: 3px;
+  background: transparent; color: var(--text-mute);
+  font: 500 var(--fs-tiny)/1 var(--font-sans);
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.seg-btn:hover { color: var(--text-dim); }
+.seg-btn.on { background: var(--surface-hi); color: var(--text); }
+
+.wall-check {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: var(--fs-tiny); color: var(--text-dim); cursor: pointer;
+  user-select: none;
+}
+.wall-check input { accent-color: var(--accent); cursor: pointer; }
+.wall-hint { font-size: var(--fs-micro); margin-left: auto; }
+
+/* -------------------------------------------------------------------- grid */
+
+#wall-grid {
+  display: grid;
+  gap: var(--s3);
+  align-content: start;
+  /* Rows take their natural height instead of being stretched to a track sized
+   * before the tiles knew how tall they were.
+   *
+   * This is load-bearing, not tidying. A card sets `overflow: hidden` so the
+   * video is clipped to its rounded corners, and that makes it a scroll
+   * container -- at which point Chrome stops letting the height its stage
+   * derives from `aspect-ratio: 16 / 9` contribute to the row's intrinsic size.
+   * The rows came out 92 px tall, the stage inside them was a correct 226 px,
+   * and every tile silently clipped its own video to a letterbox strip.
+   * `max-content` sizes each row from the real content instead. */
+  grid-auto-rows: max-content;
+  padding: var(--s4);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.wall-empty {
+  grid-column: 1 / -1;
+  padding: var(--s8) var(--s4);
+  text-align: center;
+  color: var(--text-mute);
+  font-size: var(--fs-small);
+}
+
+/* ------------------------------------------------------------------- cards */
+
+/* Deliberately block rather than a flex column. The stage sizes itself from
+ * `aspect-ratio: 16 / 9`, and inside a column flex container that ratio is
+ * ignored -- the item's base size comes from its content, and the stage's
+ * content is absolutely positioned, so every tile collapsed to about 49 px
+ * instead of the 225 px the ratio asks for. A block box has a definite width
+ * to apply the ratio against. */
+.wcard {
+  display: block;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color var(--t-fast) var(--ease),
+              box-shadow var(--t-fast) var(--ease),
+              transform var(--t-fast) var(--ease);
+}
+.wcard:hover { border-color: var(--line-strong); transform: translateY(-1px); }
+
+/* A live tile is ringed rather than merely brighter. On a wall of thirty
+ * cards, "which of these is actually decoding right now" has to be answerable
+ * from across the room, and luminance alone does not carry that far. */
+.wcard.live {
+  border-color: rgba(47, 214, 160, 0.32);
+  box-shadow: 0 0 0 1px rgba(47, 214, 160, 0.18), var(--sh);
+}
+.wcard.failed {
+  border-color: rgba(240, 166, 60, 0.35);
+  box-shadow: 0 0 0 1px rgba(240, 166, 60, 0.16);
+}
+
+.wcard-head {
+  display: flex; align-items: center; gap: var(--s2);
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-2);
+}
+.wdot {
+  width: 7px; height: 7px; border-radius: 50%; flex: none;
+  background: var(--text-faint);
+}
+.wdot[data-status="online"]   { background: var(--signal); }
+.wdot[data-status="degraded"] { background: var(--warn); }
+.wdot[data-status="offline"]  { background: var(--critical); }
+
+.wcard-id {
+  font-size: var(--fs-micro); font-weight: 600;
+  color: var(--text-mute); letter-spacing: 0.04em; flex: none;
+}
+.wcard-name {
+  font-size: var(--fs-small); font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  min-width: 0; flex: 1;
+}
+.wcard-badges { display: flex; gap: 4px; flex: none; }
+.wcard-badges .tag { padding: 1px 5px; }
+
+.wcard-action { flex: none; }
+.wcard-head .icon-btn { width: 24px; height: 24px; }
+
+/* The picture. 16:9 and letterboxed rather than stretched: an operator judging
+ * a vehicle by its shape cannot afford the aspect ratio to be a lie. */
+/* No `width: 100%` here on purpose -- `width: auto` on a block box already
+ * fills the card, and adding a percentage only gives the ratio one more way to
+ * go indefinite. The height this stage derives is only actually *counted* by
+ * the grid because of `grid-auto-rows: max-content` above; see that note. */
+.wcard-stage {
+  position: relative;
+  display: block;
+  aspect-ratio: 16 / 9;
+  background: var(--video-ground);
+  overflow: hidden;
+}
+.wcard-video {
+  width: 100%; height: 100%;
+  object-fit: contain;
+  display: block;
+  opacity: 0;
+  transition: opacity var(--t-slow) var(--ease);
+}
+.wcard.painted .wcard-video { opacity: 1; }
+
+/* Idle state. Carries the camera's last decoded frame, heavily dimmed, so an
+ * operator can tell thirty-one cameras apart before opening any of them --
+ * which thirty-one black rectangles cannot do.
+ *
+ * It must never read as a live feed, and three things enforce that: the still
+ * sits at 34% brightness (live tiles run at 100%), it carries a LAST FRAME
+ * badge where a live tile carries LIVE, and the green dot exists only on a
+ * streaming tile. Hovering lifts it to 52% -- enough to read the scene you are
+ * about to open, still nowhere near live. */
+.wcard-idle {
+  position: absolute; inset: 0;
+  color: var(--on-video-mute);
+  background:
+    repeating-linear-gradient(135deg,
+      rgba(255, 255, 255, 0.012) 0 2px, transparent 2px 7px);
+  transition: color var(--t-fast) var(--ease);
+}
+.wcard:hover .wcard-idle { color: var(--on-video-dim); }
+
+/* The play affordance sits over a scene of unknown brightness -- a lit toll
+ * plaza and an unlit underpass are both in this estate -- so it carries its own
+ * ground rather than trusting the still underneath it to be dark. */
+.wcard-idle-inner {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 10px;
+  z-index: 1;
+  background: radial-gradient(ellipse 62% 74% at 50% 50%,
+                              rgba(4, 6, 10, 0.66), rgba(4, 6, 10, 0) 72%);
+  color: var(--on-video-mute);
+}
+
+.wcard-still {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  object-fit: cover;
+  display: block;
+  /* Starts hidden and fades in on load, so a slow thumbnail never flashes a
+   * broken image over the play affordance. */
+  opacity: 0;
+  filter: brightness(0.26) saturate(0.42);
+  transition: opacity var(--t-slow) var(--ease),
+              filter var(--t) var(--ease);
+}
+.wcard-still.shown { opacity: 1; }
+.wcard:hover .wcard-still.shown { filter: brightness(0.46) saturate(0.65); }
+
+/* Same corner as the live badge, deliberately: the two are mutually exclusive
+ * states of one tile, and putting them in the same place makes reading a wall
+ * of thirty-one tiles a single scan rather than two. */
+.wcard-still-badge {
+  position: absolute; left: 8px; top: 8px;
+  z-index: 2;
+  padding: 3px 7px;
+  border-radius: var(--r-sm);
+  background: var(--video-scrim);
+  border: 1px solid var(--on-video-line);
+  color: var(--on-video-mute);
+  font: 600 var(--fs-micro)/1 var(--font-mono);
+  letter-spacing: 0.1em;
+  opacity: 0;
+  transition: opacity var(--t-fast) var(--ease);
+  pointer-events: none;
+}
+/* Only shown once a still has actually loaded -- a tile with no thumbnail has
+ * no last frame to label. */
+.wcard-still.shown ~ .wcard-still-badge { opacity: 1; }
+.wcard-play {
+  width: 42px; height: 42px;
+  display: grid; place-items: center;
+  border-radius: 50%;
+  border: 1px solid var(--on-video-line);
+  background: var(--video-chip);
+  color: var(--on-video);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  transition: border-color var(--t-fast) var(--ease),
+              background var(--t-fast) var(--ease),
+              transform var(--t-fast) var(--ease);
+}
+.wcard:hover .wcard-play {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent);
+  transform: scale(1.06);
+}
+.wcard-idle-text {
+  font-size: var(--fs-tiny);
+  text-shadow: 0 1px 6px rgba(4, 6, 10, 0.9);
+}
+
+.wcard-state {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  padding: var(--s4);
+  text-align: center;
+  color: var(--on-video-dim);
+  font-size: var(--fs-micro);
+  line-height: 1.55;
+  background: var(--video-scrim-strong);
+}
+.wcard-state-title { font-size: var(--fs-tiny); font-weight: 600; }
+
+.spinner {
+  width: 22px; height: 22px;
+  border: 2px solid var(--on-video-line);
+  border-top-color: #4d9dff;
+  border-radius: 50%;
+  animation: spin 900ms linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* The live badge only exists on a tile that is actually streaming. */
+.wcard-live {
+  position: absolute; left: 8px; top: 8px;
+  display: flex; align-items: center; gap: 5px;
+  padding: 3px 7px;
+  border-radius: var(--r-sm);
+  background: var(--video-scrim);
+  border: 1px solid rgba(47, 214, 160, 0.3);
+  /* The live green is the dark-theme one even in light mode: it is drawn on
+   * --video-ground, not on the page. */
+  color: #2fd6a0;
+  font: 700 var(--fs-micro)/1 var(--font-mono);
+  letter-spacing: 0.1em;
+  pointer-events: none;
+}
+.wcard-live-sub {
+  color: var(--on-video-mute); font-weight: 500; letter-spacing: 0.02em;
+}
+
+.wcard-stop {
+  position: absolute; right: 8px; top: 8px;
+  width: 24px; height: 24px;
+  display: grid; place-items: center;
+  border: 1px solid var(--on-video-line); border-radius: var(--r-sm);
+  background: var(--video-scrim);
+  color: var(--on-video-dim);
+  cursor: pointer; opacity: 0;
+  transition: opacity var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.wcard:hover .wcard-stop { opacity: 1; }
+.wcard-stop:hover { color: var(--critical); border-color: rgba(255, 84, 112, 0.4); }
+
+/* ------------------------------------------------------------------ footer */
+
+#wall-foot {
+  display: flex; align-items: center; gap: var(--s4);
+  padding: 8px var(--s4);
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+  font-size: var(--fs-micro);
+  color: var(--text-faint);
+}
+#wall-foot span:last-child { margin-left: auto; }
+
+/* ------------------------------------------------------------------- focus */
+
+#focus { position: fixed; inset: 0; z-index: 150; }
+.focus-scrim {
+  position: absolute; inset: 0;
+  background: rgba(3, 5, 8, 0.86);
+  backdrop-filter: blur(6px);
+  animation: fade var(--t) var(--ease);
+}
+.focus-card {
+  position: absolute; inset: 3vh 3vw;
+  display: flex; flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-lg);
+  box-shadow: var(--sh-xl);
+  overflow: hidden;
+}
+.focus-head {
+  display: flex; align-items: center; gap: var(--s2);
+  padding: 10px var(--s4);
+  border-bottom: 1px solid var(--line);
+  font-size: var(--fs-small);
+  flex: none;
+}
+.focus-head .dot { color: var(--signal); }
+.focus-name { font-weight: 650; }
+.focus-video {
+  flex: 1;
+  display: grid; place-items: center;
+  background: var(--video-ground);
+  min-height: 0;
+}
+.focus-video img { max-width: 100%; max-height: 100%; object-fit: contain; }
+
+/* -------------------------------------------------------------- responsive */
+
+@media (max-width: 820px) {
+  #wall-grid { grid-template-columns: 1fr !important; }
+  .wall-hint { display: none; }
+  #wall-bar { gap: var(--s2); }
+}

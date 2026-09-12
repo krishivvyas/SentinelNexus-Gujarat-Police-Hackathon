@@ -20,6 +20,10 @@ models/*.weights
 models/*.onnx
 models/*.caffemodel
 
+# Cached OpenStreetMap context layers. Regenerated on demand from the
+# Overpass queries in services/gis.py -- large, and not source.
+backend/data/gis/
+
 # Generated data
 backend/data/*.db
 backend/data/*.db-wal

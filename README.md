@@ -24,14 +24,17 @@ This is an active build against a 2026-09-07 deadline. What is real today:
 | Live stream worker (PTS, backoff, loop handling) | **Working**, verified against the live grid |
 | Burned-in overlay OCR (timestamp + site name) | **Working** — authoritative event clock |
 | Camera triage + time-cluster analysis | **Working** — plate score + cluster per camera |
-| Vehicle detection (OpenCV DNN, YOLOv4-tiny) | **Working** — ~9,800 sightings in the local run |
+| Vehicle detection (YOLO11 on ONNX Runtime) | **Working** — 1.83x the vehicles YOLOv4-tiny found on this grid, at the same cost |
 | ANPR (localise → restore → OCR → normalise → vote) | **Working** — reads plates down to ~60 px |
 | Cross-camera tracking and investigation | **Working** — plate, attribute and free-text search |
 | Live MJPEG preview with detections drawn on | **Working** — plain `<img>`, no player library |
+| GIS context layers (districts, highways, POIs) | **Working** — fetched live from OpenStreetMap and cached |
+| Bulk registry import with column auto-mapping | **Working** — reads a department's own spreadsheet, shows every decision |
+| Measured camera health (probe, not trust) | **Working** — reported vs confirmed availability |
 | Watchlist + real-time alerts (WebSocket) | **Working** |
 | GIS map, CSV/PDF reports | **Working** |
 | JWT auth + RBAC + audit trail | **Working** — ADMIN / OPERATOR / ANALYST |
-| REST API + command-centre UI | **Working** — 25 REST endpoints + 1 WebSocket, no build step |
+| REST API + command-centre UI | **Working** — 34 REST endpoints + 1 WebSocket, no build step |
 
 Full plan, measurements and daily schedule: [`implementation.md`](implementation.md).
 Architecture and design rationale: [`docs/HLD.md`](docs/HLD.md).
@@ -92,7 +95,8 @@ These findings shaped the architecture and are worth reading before changing any
                      +----------+----------+
                      |                     |
               OVERLAY OCR            VEHICLE DETECTOR
-          (timestamp + site)      (OpenCV DNN, YOLOv4-tiny)
+          (timestamp + site)     (YOLO11 / ONNX Runtime,
+                                  YOLOv4-tiny fallback)
                      |                     |
                      |              +------+------+
                      |         PLATE DETECT   ATTRIBUTES
@@ -111,13 +115,125 @@ These findings shaped the architecture and are worth reading before changing any
                                     v
                         FASTAPI + WEBSOCKET
                                     v
-                  COMMAND CENTRE UI (Leaflet GIS)
+              COMMAND CENTRE UI (MapLibre GL, map-first)
+           layers · video wall · evidence · trace · health
 ```
 
 Every connector converts its source into the same `CameraDescriptor`, so nothing above
 the connector layer knows which protocol a camera speaks. `BaseConnector` is the
 abstract adapter; RTSP, HLS and the catalogue are implemented, and ONVIF or a vendor
 VMS API would be a new subclass rather than a change anywhere upstream.
+
+---
+
+## Detection
+
+The detector is **YOLO11 on ONNX Runtime**, with YOLOv4-tiny on `cv2.dnn` kept as a
+fallback so the platform still detects if the ONNX fetch fails on a restricted
+network. Neither path needs PyTorch or the `ultralytics` package — the weights are
+consumed as plain `.onnx` graphs, which is what keeps PaddleOCR and the detector able
+to live in one Windows process.
+
+Measured over 40 night frames sampled from this grid's own evidence store, on a
+16-core CPU-only host, at 1080p:
+
+| Model | Cost / frame | Vehicles / frame | vs YOLOv4-tiny |
+|---|---|---|---|
+| YOLOv4-tiny (previous) | 75 ms | 1.30 | — |
+| **yolo11n** | **40 ms** | **2.33** | **1.79x** |
+| **yolo11s** (default) | **80 ms** | **2.38** | **1.83x** |
+| yolo11m | 221 ms | 1.95 | 1.50x |
+
+Two things in that table are worth reading carefully.
+
+**The gain is real and it is on the failure mode that matters.** These are wide-angle
+night PTZ overviews where a car occupies 40x30 px — the exact case a 2020 detector
+trained at 416 px misses outright. Spot-checking the extra boxes against the frames
+confirms they are vehicles YOLOv4-tiny simply did not see, not a lowered threshold
+inventing them.
+
+**Bigger is worse here.** yolo11m finds *fewer* vehicles than yolo11s while costing
+2.8x more. A larger model is better calibrated and therefore more willing to call a
+dim night blob "not a vehicle" — which is the wrong trade when the blob usually is
+one. So the `high` hardware profile does not load a bigger model; it feeds the same
+model more cameras and more frames. yolo11m stays downloadable and can be pinned with
+`SENTINEL_DETECTOR=yolo11m` for daylight footage, where that calibration is an asset.
+
+### The plate detector that did not earn its place
+
+A single-class YOLO licence-plate detector is implemented (`pipeline/plate_detect.py`)
+and ships **disabled**. Over 55 vehicle crops from this grid's evidence store it
+produced **zero** detections — byte-identical output to the existing morphological
+localiser, for an extra 39 ms per crop:
+
+| Localiser | Crops with a candidate | Candidates | Cost |
+|---|---|---|---|
+| Morphology only | 22 / 55 | 36 | 1 ms/crop |
+| Learned + morphology | 22 / 55 | 36 | 39 ms/crop |
+
+Raw head scores are ~0.002 on night crops and peak at 0.16 on the brightest frames in
+the store — never within reach of any usable threshold. Two different public plate
+models agree. Plates here span 20–40 px with motion blur and headlight bloom; there is
+nothing to lock onto.
+
+The code path is kept because it is correct and one flag away: point this platform at
+a dedicated ANPR camera or daylight footage — exactly the deployment it would scale to
+— and `SENTINEL_PLATE_DETECTOR=1` makes it the better localiser immediately. What was
+not acceptable was shipping a 39 ms/crop cost that buys nothing measurable.
+
+---
+
+## Command centre UI
+
+Map-first, and served as static files from the same Python process as the API — no
+Node toolchain, no bundler, no `node_modules`, no build step. Open `/` and it runs.
+
+The map is the background of the whole application rather than a tab, because the
+single thing this platform adds is one surface where every department's cameras exist
+together. Everything else floats over it: a layer control, a right-hand slide-over for
+detail, and a dockable video wall.
+
+| Panel | What it is for |
+|---|---|
+| **Layers** | Owning department and ANPR capability as *separate* filters — an operator hunting a registration wants the cameras able to read one, whoever owns them |
+| **Cameras** | The estate, with unplaced cameras surfaced rather than silently missing from the map |
+| **Registry** | Bulk import from a department's own spreadsheet, with every column-mapping decision shown before anything is saved |
+| **ANPR events** | Every reading with its plate crop and boxed full frame attached |
+| **Tracing** | A plate's route across cameras, with a playback slider |
+| **Watchlist** | Live alerts over a WebSocket; the pin flashes and the map moves to it |
+| **Health** | Measured availability against reported availability |
+| **Guide** | A scripted walkthrough that drives the real interface rather than playing a recording |
+
+### The basemap, and why there is not one
+
+There is no third-party tile layer by default. Every free dark basemap now either
+watermarks anonymous requests (CARTO stamps "API KEY REQUIRED" across every tile) or
+refuses application traffic outright (the OSM volunteer servers answer `418`). The
+remaining options are an API key on somebody's billing account, or none — and this
+platform is specified to run on an isolated operator network where an outbound tile
+request may not resolve at all.
+
+So the map draws its geography from layers this platform fetches and caches itself,
+from OpenStreetMap via the Overpass API:
+
+| Layer | Features cached |
+|---|---|
+| District boundaries | 34 |
+| National highways | 1,428 |
+| Major roads | 7,813 |
+| Ahmedabad street grid | 6,071 |
+| Police stations | 100 |
+| Toll plazas | 198 |
+| Railway stations | 668 |
+
+Every one of those counts is the number of features an actual query returned, and the
+query is in `services/gis.py` for anyone who wants to re-run it. When a fetch fails the
+layer reports itself as unavailable and draws nothing, rather than falling back to
+plausible-looking dots — an operator who cannot tell a real toll plaza from a
+decorative one cannot use the map to plan an interception.
+
+Operators with their own tile server set `SENTINEL_BASEMAP_URL` and get it underneath
+all of this.
 
 ---
 
@@ -132,7 +248,10 @@ VMS API would be a new subclass rather than a change anywhere upstream.
 
 > **Use a clean virtualenv.** Do **not** use `--system-site-packages`, and do not run
 > this inside Anaconda's environment. PyTorch is deliberately not a dependency —
-> detection runs on OpenCV DNN.
+> detection runs YOLO11 on ONNX Runtime, a ~15 MB wheel with no CUDA payload.
+> Torch would also clash with PaddlePaddle over DLLs on Windows, and PaddleOCR is
+> not optional here: it reads the burned-in overlay clock every event timestamp
+> comes from.
 
 ### Manual Install
 
@@ -149,17 +268,23 @@ python -m venv .venv-clean
 
 Copy `.env.example` to `.env` and fill in the RTSP credentials and `JWT_SECRET`.
 
-Download the detector weights (~24 MB, open source; loaded by OpenCV's DNN module via
-`cv2.dnn.readNetFromDarknet`). The `.cfg` is committed, so only the weights file is
-strictly required:
+Download the detector weights. `run.py` fetches all of these automatically if they
+are absent, so this is only needed for a manual install:
 
 ```bash
+# Primary detector — YOLO11s, COCO-trained, pre-exported to ONNX (~38 MB)
+curl -L -o models/yolo11s.onnx https://huggingface.co/giangndm/yolo11-onnx/resolve/main/yolo11s_640.onnx
+
+# Fallback detector, used if the ONNX fetch fails on a restricted network (~24 MB)
 curl -L -o models/yolov4-tiny.weights https://github.com/AlexeyAB/darknet/releases/download/yolov4/yolov4-tiny.weights
-# already in the repo, re-fetch only if it is missing:
-# curl -L -o models/yolov4-tiny.cfg https://raw.githubusercontent.com/AlexeyAB/darknet/master/cfg/yolov4-tiny.cfg
+
+# Optional: lighter and heavier variants for the low/high hardware profiles
+# curl -L -o models/yolo11n.onnx https://huggingface.co/giangndm/yolo11-onnx/resolve/main/yolo11n_640.onnx
+# curl -L -o models/yolo11m.onnx https://huggingface.co/giangndm/yolo11-onnx/resolve/main/yolo11m_640.onnx
 ```
 
-`run.py` downloads both automatically if they are absent.
+Nothing here needs PyTorch or the `ultralytics` package: the weights are consumed as
+plain `.onnx` graphs.
 
 ### Build the camera registry
 
@@ -225,6 +350,11 @@ from the repo root first, then `backend/.env`. See `backend/app/config.py`.
 | `SENTINEL_HLS_COOKIE` / `_TOKEN` | empty | Portal session for the HLS fallback |
 | `SENTINEL_CATALOGUE_URL` | empty | Live `cameras.json`; empty falls back to the local file |
 | `SENTINEL_PLATE_REGION` | `IN` | Plate layout to validate: `IN` or `GENERIC` |
+| `SENTINEL_DETECTOR` | `auto` | `auto`, `yolo11n/s/m/l`, or `yolov4-tiny` to force the fallback |
+| `SENTINEL_DETECTOR_THREADS` | `0` | ONNX intra-op threads; 0 = all cores but one |
+| `SENTINEL_DETECTOR_CONF` | `0.25` | Detection confidence floor |
+| `SENTINEL_PLATE_DETECTOR` | `0` | Learned plate localiser. Off — it measured zero detections on this grid |
+| `SENTINEL_BASEMAP_URL` | empty | Raster tile URL. Empty draws the map from our own cached OSM layers |
 | `DATABASE_URL` | `sqlite:///backend/data/sentinel.db` | Swap to PostgreSQL/PostGIS here |
 | `JWT_SECRET` | dev placeholder | **Must be set in production** |
 
@@ -233,11 +363,15 @@ from the repo root first, then `backend/.env`. See `backend/app/config.py`.
 The platform scales to the machine running it. Profiles change how much of each feed is
 sampled and how many streams are open — never behaviour or accuracy.
 
-| Profile | Sample interval | Concurrent streams | Inference width | Target |
+| Profile | Sample interval | Concurrent streams | Detector | Target |
 |---|---|---|---|---|
-| `low` | 3000 ms | 2 | 512 px | Old laptop, no GPU |
-| `balanced` | 400 ms | 4 | 640 px | Typical dev machine |
-| `high` | 250 ms | 8 | 736 px | Many cores |
+| `low` | 3000 ms | 2 | yolo11n | Old laptop, no GPU |
+| `balanced` | 400 ms | 4 | yolo11s | Typical dev machine |
+| `high` | 250 ms | 8 | yolo11s | Many cores |
+
+Note that `high` is not a bigger model. See "Detection" below — on this footage
+yolo11m finds *fewer* vehicles than yolo11s while costing 2.8x more, so the extra
+CPU buys more cameras and more frames instead.
 
 ```bash
 SENTINEL_PROFILE=low python -m scripts.verify_pipeline --camera CAM-04
@@ -301,7 +435,7 @@ sentinal/
 │   ├── app/
 │   │   ├── api/
 │   │   │   ├── __init__.py
-│   │   │   └── routes.py              # 25 REST endpoints + alert WebSocket
+│   │   │   └── routes.py              # 34 REST endpoints + alert WebSocket
 │   │   ├── connectors/                # federation layer — one adapter per protocol
 │   │   │   ├── __init__.py
 │   │   │   ├── base.py                # BaseConnector ABC + CameraDescriptor contract
@@ -313,10 +447,12 @@ sentinal/
 │   │   │                              #   users, audit_log, camera_metadata_history
 │   │   ├── pipeline/
 │   │   │   ├── __init__.py
-│   │   │   ├── detect.py              # vehicle detection on OpenCV DNN (YOLOv4-tiny)
+│   │   │   ├── detect.py              # vehicle detection — YOLO11/ONNX, v4-tiny fallback
+│   │   │   ├── onnx_backend.py        # ONNX Runtime inference for the YOLO family
 │   │   │   ├── ocr.py                 # plate OCR, normalisation, multi-frame voting
 │   │   │   ├── overlay.py             # burned-in timestamp + site-name OCR
 │   │   │   ├── plate.py               # plate localisation and image restoration
+│   │   │   ├── plate_detect.py        # learned plate localiser (ships disabled — see Detection)
 │   │   │   ├── track.py               # IoU tracker (enables plate voting)
 │   │   │   └── worker.py              # PTS-driven stream worker, backoff, loop detection
 │   │   ├── schemas/                   # Pydantic request/response models  (empty — planned)
@@ -324,6 +460,9 @@ sentinal/
 │   │   ├── services/
 │   │   │   ├── __init__.py
 │   │   │   ├── alerts.py              # alert engine + WebSocket broadcast
+│   │   │   ├── gis.py                 # OSM context layers via Overpass, cached to disk
+│   │   │   ├── health.py              # camera probing — measured availability
+│   │   │   ├── importer.py            # CSV bulk import with column auto-mapping
 │   │   │   ├── ingest.py              # per-camera orchestration
 │   │   │   ├── live.py                # MJPEG live preview with detections drawn on
 │   │   │   ├── registry.py            # camera registry + metadata audit trail
@@ -335,10 +474,25 @@ sentinal/
 │   │   ├── config.py                  # env-driven settings + hardware profiles
 │   │   ├── db.py                      # SQLAlchemy engine (SQLite → Postgres swap)
 │   │   └── main.py                    # FastAPI app; serves the API and the UI
-│   ├── static/
-│   │   └── index.html                 # command-centre UI — no build step, no node_modules
+│   ├── static/                        # command-centre UI — no build step, no node_modules
+│   │   ├── index.html                 # shell
+│   │   ├── index.legacy.html          # the previous single-file tabbed UI, kept for reference
+│   │   ├── css/
+│   │   │   ├── tokens.css             # design tokens — colour, type, space, motion
+│   │   │   └── app.css                # layout and components
+│   │   └── js/
+│   │       ├── api.js                 # REST client, session, token-in-query URLs
+│   │       ├── app.js                 # shell: gate, rail, panel routing, alert socket
+│   │       ├── map.js                 # MapLibre map, camera pins, GIS layers, trace
+│   │       ├── store.js               # state + subscribe/notify
+│   │       ├── tour.js                # guided walkthrough that drives the real UI
+│   │       ├── ui.js                  # DOM helpers, icons, formatting, toasts
+│   │       ├── wall.js                # video wall dock
+│   │       └── panels/                # layers, camera, registry, events, trace,
+│   │                                  #   watchlist, health
 │   ├── data/                          # generated — most of it is gitignored
 │   │   ├── evidence/                  # detection snapshots            (gitignored)
+│   │   ├── gis/                       # cached OSM layers (GeoJSON)    (gitignored)
 │   │   ├── own_feed/                  # close-range demo footage       (gitignored)
 │   │   ├── ocr_samples/               # full-res OCR/ANPR test corpus  (gitignored)
 │   │   ├── thumbnails/                # per-camera preview stills      (gitignored)
@@ -347,6 +501,10 @@ sentinal/
 │   │   ├── geocode_cache.json         # Nominatim lookups, cached to avoid re-querying
 │   │   ├── overlay_reads.json         # OCR'd overlay clocks + site names
 │   │   └── sentinel.db                # SQLite registry + events       (gitignored)
+│   ├── tests/
+│   │   ├── test_importer.py           # column auto-mapping across real spreadsheet shapes
+│   │   ├── test_ocr_fallback.py
+│   │   └── test_scenery_suppression.py
 │   ├── scripts/
 │   │   ├── demo_own_feed.py           # own-feed run: detection → ANPR → watchlist → alert
 │   │   ├── run_ingest.py              # live ingest against the grid
@@ -360,9 +518,13 @@ sentinal/
 │   └── submission/
 │       ├── government_feed_detections.csv   # detection log from the grid (earlier export)
 │       └── own_feed_trace_MPE3389.pdf       # evidence report from the own-feed run
-├── models/
+├── models/                            # all weights downloaded by run.py, gitignored
+│   ├── yolo11s.onnx                   # primary detector           (~38 MB)
+│   ├── yolo11n.onnx                   # "low" profile              (~11 MB, optional)
+│   ├── yolo11m.onnx                   # pinnable for daylight      (~80 MB, optional)
+│   ├── plate-detector.onnx            # learned plate localiser    (~10 MB, ships disabled)
 │   ├── yolov4-tiny.cfg                # committed
-│   └── yolov4-tiny.weights            # downloaded, gitignored (~24 MB)
+│   └── yolov4-tiny.weights            # fallback detector          (~24 MB)
 ├── .env.example                       # copy to .env and fill in
 ├── .gitignore
 ├── implementation.md                  # full plan, measurements, daily schedule

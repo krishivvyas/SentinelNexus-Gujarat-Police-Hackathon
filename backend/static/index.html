@@ -2,616 +2,67 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="description" content="Sentinel Nexus — unified CCTV interoperability and intelligence for statewide surveillance networks.">
 <title>Sentinel Nexus — Command Centre</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<style>
-  :root{
-    --bg:#0b1017; --panel:#131b26; --panel2:#1a2430; --line:#243244;
-    --txt:#e6edf5; --dim:#8fa3ba; --accent:#3da9fc; --ok:#3ddc97;
-    --warn:#f5a524; --crit:#ff4d5e; --high:#ff7a45;
-  }
-  *{box-sizing:border-box}
-  body{margin:0;font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
-       background:var(--bg);color:var(--txt)}
-  header{display:flex;align-items:center;gap:16px;padding:10px 18px;
-         background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:900}
-  header h1{font-size:16px;margin:0;letter-spacing:.3px}
-  header h1 span{color:var(--accent)}
-  .pill{font-size:11px;padding:2px 8px;border-radius:999px;background:var(--panel2);
-        border:1px solid var(--line);color:var(--dim)}
-  .pill.live{color:var(--ok);border-color:#1c4d3a}
-  nav{display:flex;gap:4px;margin-left:auto;flex-wrap:wrap}
-  nav button{background:transparent;border:1px solid transparent;color:var(--dim);
-             padding:6px 12px;border-radius:7px;cursor:pointer;font-size:13px}
-  nav button:hover{color:var(--txt);background:var(--panel2)}
-  nav button.active{color:var(--txt);background:var(--panel2);border-color:var(--line)}
-  main{padding:18px;max-width:1500px;margin:0 auto}
-  .view{display:none} .view.active{display:block}
-  .grid{display:grid;gap:14px}
-  .cards{grid-template-columns:repeat(auto-fit,minmax(165px,1fr))}
-  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px}
-  .card .k{font-size:11px;text-transform:uppercase;letter-spacing:.7px;color:var(--dim)}
-  .card .v{font-size:28px;font-weight:650;margin-top:6px}
-  .card .s{font-size:12px;color:var(--dim);margin-top:2px}
-  .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;
-         padding:16px;margin-top:14px}
-  .panel h2{font-size:13px;text-transform:uppercase;letter-spacing:.7px;
-            color:var(--dim);margin:0 0 12px}
-  table{width:100%;border-collapse:collapse;font-size:13px}
-  th{text-align:left;color:var(--dim);font-weight:600;font-size:11px;
-     text-transform:uppercase;letter-spacing:.5px;padding:8px 10px;border-bottom:1px solid var(--line)}
-  td{padding:8px 10px;border-bottom:1px solid #1b2534}
-  tr:hover td{background:var(--panel2)}
-  .scroll{overflow-x:auto}
-  input,select{background:var(--panel2);border:1px solid var(--line);color:var(--txt);
-               padding:9px 11px;border-radius:7px;font-size:13px;font-family:inherit}
-  input:focus,select:focus{outline:none;border-color:var(--accent)}
-  button.go{background:var(--accent);border:none;color:#04121f;padding:9px 16px;
-            border-radius:7px;cursor:pointer;font-weight:650;font-size:13px}
-  button.go:hover{filter:brightness(1.1)}
-  button.ghost{background:var(--panel2);border:1px solid var(--line);color:var(--txt);
-               padding:6px 11px;border-radius:6px;cursor:pointer;font-size:12px}
-  button.ghost:hover{border-color:var(--accent)}
-  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-  .tag{font-size:10.5px;padding:2px 7px;border-radius:5px;border:1px solid var(--line);
-       background:var(--panel2);color:var(--dim);white-space:nowrap}
-  .tag.ok{color:var(--ok);border-color:#1c4d3a}
-  .tag.warn{color:var(--warn);border-color:#5a4416}
-  .tag.crit{color:var(--crit);border-color:#5e1f27}
-  .tag.high{color:var(--high);border-color:#5e3320}
-  .tag.approx{color:var(--warn);border-color:#5a4416}
-  #map{height:520px;border-radius:10px;border:1px solid var(--line)}
-  .muted{color:var(--dim)} .mono{font-family:ui-monospace,"Cascadia Code",Consolas,monospace}
-  .empty{color:var(--dim);text-align:center;padding:30px;font-size:13px}
-  .thumb{width:120px;height:68px;object-fit:cover;border-radius:6px;border:1px solid var(--line);background:var(--panel2)}
-  .banner{background:#1d2a1f;border:1px solid #2c5637;color:#b7e4c7;padding:10px 14px;
-          border-radius:8px;font-size:12.5px;margin-bottom:14px}
-  .banner.warn{background:#2a2318;border-color:#5a4416;color:#f0d9a8}
-  .timeline{list-style:none;padding:0;margin:0}
-  .timeline li{position:relative;padding:0 0 16px 24px;border-left:2px solid var(--line)}
-  .timeline li:last-child{border-left-color:transparent}
-  .timeline li::before{content:"";position:absolute;left:-6px;top:4px;width:10px;height:10px;
-                       border-radius:50%;background:var(--accent)}
-  .login{max-width:340px;margin:14vh auto;background:var(--panel);border:1px solid var(--line);
-         border-radius:12px;padding:26px}
-  .login h2{margin:0 0 4px;font-size:18px;text-transform:none;letter-spacing:0;color:var(--txt)}
-  .login input{width:100%;margin-bottom:10px}
-  .login button{width:100%}
-  .err{color:var(--crit);font-size:12.5px;min-height:17px}
-</style>
+
+<!-- Inter where it reaches, the platform UI face otherwise. This is designed to
+     run on an isolated operator network where fonts.googleapis.com may not
+     resolve, so the fallback stack in tokens.css has to look deliberate. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<link rel="stylesheet" href="/static/css/tokens.css">
+<link rel="stylesheet" href="/static/css/app.css">
+
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect width='24' height='24' rx='6' fill='%234d9dff'/><path d='M12 5 6 7.4v3.9c0 3.4 2.6 6.4 6 7.2 3.4-.8 6-3.8 6-7.2V7.4L12 5Z' fill='none' stroke='%23041020' stroke-width='1.8'/></svg>">
 </head>
 <body>
 
-<div id="login" class="login">
-  <h2>Sentinel <span style="color:var(--accent)">Nexus</span></h2>
-  <p class="muted" style="font-size:12.5px;margin:0 0 16px">Unified CCTV intelligence platform</p>
-  <input id="u" placeholder="Username" value="operator" autocomplete="username">
-  <input id="p" type="password" placeholder="Password" value="sentinel-operator" autocomplete="current-password">
-  <div class="err" id="loginErr"></div>
-  <button class="go" onclick="login()">Sign in</button>
-  <p class="muted" style="font-size:11.5px;margin-top:14px">
-    Demo accounts — admin / operator / analyst, password <span class="mono">sentinel-&lt;role&gt;</span>
-  </p>
+<!-- Sign-in. Rendered by app.js so the token check and the form live together. -->
+<div id="gate" hidden></div>
+
+<div id="shell" hidden>
+  <header id="topbar"></header>
+  <nav id="rail" aria-label="Sections"></nav>
+
+  <main id="stage">
+    <!-- The map is the background of the entire application, not a tab.
+         Everything below floats over it. -->
+    <div id="map" role="application" aria-label="Camera map"></div>
+
+    <aside id="layers" class="float" aria-label="Map layers"></aside>
+
+    <!-- The cameras the map refuses to draw. Permanently on the map surface
+         while any remain, because an unplaced camera is otherwise invisible on
+         a map-first interface. -->
+    <aside id="unplaced" class="float" aria-label="Cameras not on the map" hidden></aside>
+
+    <aside id="panel" aria-label="Detail panel"></aside>
+    <section id="dock" aria-label="Video wall"></section>
+
+    <div id="toasts" aria-live="polite" aria-atomic="false"></div>
+  </main>
 </div>
 
-<div id="app" style="display:none">
-<header>
-  <h1>SENTINEL <span>NEXUS</span></h1>
-  <span class="pill" id="profilePill">—</span>
-  <span class="pill live" id="wsPill">connecting…</span>
-  <nav>
-    <button class="active" onclick="show('overview',this)">Overview</button>
-    <button onclick="show('live',this)">Live</button>
-    <button onclick="show('map',this)">GIS Map</button>
-    <button onclick="show('investigate',this)">Investigate</button>
-    <button onclick="show('alerts',this)">Alerts</button>
-    <button onclick="show('cameras',this)">Cameras</button>
-    <button onclick="show('reports',this)">Reports</button>
-    <button class="ghost" style="margin-left:8px" onclick="logout()">Sign out</button>
-  </nav>
-</header>
+<div id="tour" hidden></div>
 
-<main>
-  <!-- OVERVIEW -->
-  <section id="overview" class="view active">
-    <div class="grid cards">
-      <div class="card"><div class="k">Total Cameras</div><div class="v" id="cTotal">—</div><div class="s" id="cSub">—</div></div>
-      <div class="card"><div class="k">Online</div><div class="v" style="color:var(--ok)" id="cOnline">—</div><div class="s" id="cDeg">—</div></div>
-      <div class="card"><div class="k">AI Enabled</div><div class="v" style="color:var(--accent)" id="cAi">—</div><div class="s">selected by triage</div></div>
-      <div class="card"><div class="k">Vehicles Detected</div><div class="v" id="sTotal">—</div><div class="s" id="sPlate">—</div></div>
-      <div class="card"><div class="k">Active Alerts</div><div class="v" style="color:var(--crit)" id="aNew">—</div><div class="s" id="aSub">—</div></div>
-      <div class="card"><div class="k">Watchlist</div><div class="v" id="wCount">—</div><div class="s">active entries</div></div>
-    </div>
+<noscript>
+  <div style="padding:40px;font:14px system-ui;color:#e9eff7;background:#06080c;
+              height:100vh">
+    <h1 style="font-size:20px;margin:0 0 12px">Sentinel Nexus</h1>
+    <p style="color:#a3b3c7;max-width:52ch;line-height:1.6">
+      This command centre needs JavaScript. The REST API underneath it does not —
+      it is documented at <a href="/docs" style="color:#4d9dff">/docs</a> and can
+      be driven directly.
+    </p>
+  </div>
+</noscript>
 
-    <div class="panel">
-      <h2>Ingest Status</h2>
-      <div class="row" style="margin-bottom:12px">
-        <button class="go" onclick="startIngest()">Start AI cameras</button>
-        <button class="ghost" onclick="stopIngest()">Stop all</button>
-        <span class="muted" style="font-size:12px">Only triage-selected cameras are opened, capped by the hardware profile.</span>
-      </div>
-      <div class="scroll"><table>
-        <thead><tr><th>Camera</th><th>Running</th><th>Frames</th><th>Sightings</th><th>Plates</th><th>Reconnects</th><th>Discontinuities</th></tr></thead>
-        <tbody id="ingestBody"><tr><td colspan="7" class="empty">Ingest not running</td></tr></tbody>
-      </table></div>
-    </div>
-
-    <div class="panel">
-      <h2>Recent Detections</h2>
-      <div class="scroll"><table>
-        <thead><tr><th>Time (overlay clock)</th><th>Camera</th><th>Location</th><th>Vehicle</th><th>Direction</th><th>Plate</th></tr></thead>
-        <tbody id="recentBody"><tr><td colspan="6" class="empty">No detections yet</td></tr></tbody>
-      </table></div>
-    </div>
-  </section>
-
-  <!-- LIVE -->
-  <section id="live" class="view">
-    <div class="panel">
-      <h2>Live Monitoring</h2>
-      <div class="row">
-        <select id="liveCam" style="min-width:280px"></select>
-        <label class="muted" style="font-size:12.5px">
-          <input type="checkbox" id="liveDetect" checked> Draw detections
-        </label>
-        <button class="go" onclick="startLive()">Open stream</button>
-        <button class="ghost" onclick="stopLive()">Stop</button>
-        <span class="muted" id="liveState" style="font-size:12px"></span>
-      </div>
-      <p class="muted" style="font-size:12px;margin:10px 0 0">
-        Green boxes are live detections drawn by the same detector that writes sightings —
-        what you see is what the AI sees. Streams on this grid take <b>10–90 seconds</b> to
-        open, and with detection on the preview runs at a few frames per second because each
-        frame costs about 230&nbsp;ms of CPU. The PTS clock in the corner confirms the feed
-        is advancing.
-      </p>
-    </div>
-    <div class="panel" style="text-align:center">
-      <img id="liveImg" alt="No stream open"
-           style="max-width:100%;border-radius:8px;border:1px solid var(--line);background:#0a0f16;min-height:220px">
-    </div>
-  </section>
-
-  <!-- MAP -->
-  <section id="map-view" class="view">
-    <div class="banner warn" id="mapNote">Camera positions marked APPROXIMATE are landmark-level estimates from the camera's overlay label, not surveyed coordinates. Cameras without a trustworthy position are not shown.</div>
-    <div id="map"></div>
-  </section>
-
-  <!-- INVESTIGATE -->
-  <section id="investigate" class="view">
-    <div class="panel">
-      <h2>Vehicle Investigation</h2>
-      <div class="row">
-        <input id="q" placeholder="Registration number, or a description like &quot;white truck&quot;" style="flex:1;min-width:260px">
-        <button class="go" onclick="doSearch()">Search</button>
-        <button class="ghost" onclick="dlTrace()">Download PDF</button>
-      </div>
-      <p class="muted" style="font-size:12px;margin:10px 0 0">
-        Plate search is exact first, then tolerant of single-character OCR confusion.
-        Where no plate was readable, search by vehicle description instead.
-      </p>
-    </div>
-    <div id="searchOut"></div>
-  </section>
-
-  <!-- ALERTS -->
-  <section id="alerts" class="view">
-    <div class="panel">
-      <h2>Alert Centre</h2>
-      <div class="row" style="margin-bottom:12px">
-        <select id="aStatus" onchange="loadAlerts()">
-          <option value="">All statuses</option><option value="NEW">New</option>
-          <option value="ACKNOWLEDGED">Acknowledged</option><option value="RESOLVED">Resolved</option>
-        </select>
-        <select id="aSev" onchange="loadAlerts()">
-          <option value="">All severities</option><option value="CRITICAL">Critical</option>
-          <option value="HIGH">High</option><option value="MEDIUM">Medium</option><option value="LOW">Low</option>
-        </select>
-      </div>
-      <div class="scroll"><table>
-        <thead><tr><th>Severity</th><th>Vehicle</th><th>Camera</th><th>Location</th><th>Time</th><th>Category</th><th>Status</th><th>Evidence</th><th></th></tr></thead>
-        <tbody id="alertBody"><tr><td colspan="9" class="empty">No alerts</td></tr></tbody>
-      </table></div>
-    </div>
-
-    <div class="panel">
-      <h2>Watchlist</h2>
-      <div class="row" style="margin-bottom:12px">
-        <input id="wPlate" placeholder="Registration number" style="width:180px">
-        <select id="wCat">
-          <option>STOLEN_VEHICLE</option><option>WANTED</option>
-          <option>SUSPECT_VEHICLE</option><option>BOLO</option><option>OTHER</option>
-        </select>
-        <select id="wSev"><option>CRITICAL</option><option>HIGH</option><option selected>MEDIUM</option><option>LOW</option></select>
-        <button class="go" onclick="addWatch()">Add</button>
-      </div>
-      <div class="scroll"><table>
-        <thead><tr><th>Plate</th><th>Category</th><th>Severity</th><th>Notes</th><th></th></tr></thead>
-        <tbody id="watchBody"><tr><td colspan="5" class="empty">Watchlist empty</td></tr></tbody>
-      </table></div>
-    </div>
-  </section>
-
-  <!-- CAMERAS -->
-  <section id="cameras" class="view">
-    <div class="panel">
-      <h2>Camera Registry</h2>
-      <div class="row" style="margin-bottom:12px">
-        <input id="camQ" placeholder="Search cameras" oninput="renderCameras()" style="width:220px">
-        <select id="camStatus" onchange="renderCameras()">
-          <option value="">All statuses</option><option value="ONLINE">Online</option>
-          <option value="DEGRADED">Degraded</option><option value="OFFLINE">Offline</option>
-        </select>
-        <label class="muted" style="font-size:12.5px">
-          <input type="checkbox" id="camAi" onchange="renderCameras()"> AI-enabled only
-        </label>
-      </div>
-      <div class="scroll"><table>
-        <thead><tr><th>Preview</th><th>Camera</th><th>Location</th><th>Status</th><th>Codec</th><th>Resolution</th><th>Triage</th><th>Cluster</th><th>Position</th></tr></thead>
-        <tbody id="camBody"><tr><td colspan="9" class="empty">Loading…</td></tr></tbody>
-      </table></div>
-    </div>
-  </section>
-
-  <!-- REPORTS -->
-  <section id="reports" class="view">
-    <div class="panel">
-      <h2>Evidence Reports</h2>
-      <p class="muted" style="font-size:13px">
-        The detection log lists every vehicle observed with its camera, location and timestamp.
-        Timestamps are read from each camera's burned-in overlay clock. Rows without a legible
-        plate are included and marked <span class="mono">NOT_READABLE</span> — an honest log is
-        more useful than one that hides what it could not identify.
-      </p>
-      <div class="row" style="margin-top:12px">
-        <button class="go" onclick="dlCsv(false)">Download full detection log (CSV)</button>
-        <button class="ghost" onclick="dlCsv(true)">Plates only (CSV)</button>
-      </div>
-    </div>
-    <div class="panel">
-      <h2>Detections by Camera</h2>
-      <div id="byCamera"><div class="empty">No data yet</div></div>
-    </div>
-  </section>
-</main>
-</div>
-
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script>
-let TOKEN = localStorage.getItem('sn_token') || '';
-let cameras = [], map = null, markers = null, routeLayer = null, lastTrace = null;
-
-const H = () => ({'Authorization': 'Bearer ' + TOKEN});
-const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-
-async function api(path, opts = {}) {
-  const r = await fetch('/api' + path, {...opts, headers: {...H(), ...(opts.headers||{})}});
-  if (r.status === 401) { logout(); throw new Error('unauthorised'); }
-  if (!r.ok) throw new Error(await r.text());
-  const ct = r.headers.get('content-type') || '';
-  return ct.includes('json') ? r.json() : r.text();
-}
-
-async function login() {
-  const body = new URLSearchParams();
-  body.append('username', document.getElementById('u').value);
-  body.append('password', document.getElementById('p').value);
-  try {
-    const r = await fetch('/api/auth/login', {method:'POST', body});
-    if (!r.ok) throw new Error('Incorrect username or password');
-    const d = await r.json();
-    TOKEN = d.access_token;
-    localStorage.setItem('sn_token', TOKEN);
-    boot();
-  } catch (e) { document.getElementById('loginErr').textContent = e.message; }
-}
-
-function logout() {
-  TOKEN = ''; localStorage.removeItem('sn_token');
-  document.getElementById('app').style.display = 'none';
-  document.getElementById('login').style.display = 'block';
-}
-
-function show(id, btn) {
-  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-  document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
-  document.getElementById(id === 'map' ? 'map-view' : id).classList.add('active');
-  if (btn) btn.classList.add('active');
-  if (id === 'map') initMap();
-  if (id === 'live') fillLiveCameras();
-  if (id !== 'live') stopLive();      // never leave a camera slot held open
-  if (id === 'cameras') renderCameras();
-  if (id === 'alerts') { loadAlerts(); loadWatchlist(); }
-  if (id === 'reports') loadByCamera();
-}
-
-const sevClass = s => ({CRITICAL:'crit', HIGH:'high', MEDIUM:'warn', LOW:''})[s] || '';
-const fmt = t => t ? String(t).replace('T',' ').replace(/\.\d+/,'').replace('+00:00','') : '—';
-
-async function loadStats() {
-  const s = await api('/stats');
-  const c = s.cameras, d = s.detections, a = s.alerts;
-  document.getElementById('cTotal').textContent = c.total;
-  document.getElementById('cSub').textContent = c.geolocated + ' positioned · ' + c.geo_unknown + ' unplaced';
-  document.getElementById('cOnline').textContent = c.online;
-  document.getElementById('cDeg').textContent = c.degraded + ' degraded';
-  document.getElementById('cAi').textContent = c.ai_enabled;
-  document.getElementById('sTotal').textContent = d.sightings;
-  document.getElementById('sPlate').textContent = d.sightings_with_plate + ' with a plate · ' + d.unique_plates + ' unique';
-  document.getElementById('aNew').textContent = a.new;
-  document.getElementById('aSub').textContent = a.total + ' total · ' + a.critical + ' critical';
-
-  const rows = s.ingest || [];
-  document.getElementById('ingestBody').innerHTML = rows.length ? rows.map(r =>
-    `<tr><td class="mono">${esc(r.camera_id)}</td>
-     <td><span class="tag ${r.running?'ok':''}">${r.running?'running':'stopped'}</span></td>
-     <td>${r.frames_processed}</td><td>${r.sightings}</td><td>${r.plates_read}</td>
-     <td>${r.reconnects}</td><td>${r.discontinuities}</td></tr>`).join('')
-    : '<tr><td colspan="7" class="empty">Ingest not running</td></tr>';
-}
-
-async function loadRecent() {
-  const rows = await api('/sightings/recent?limit=25');
-  document.getElementById('recentBody').innerHTML = rows.length ? rows.map(r =>
-    `<tr><td class="mono">${fmt(r.timestamp)}</td><td class="mono">${esc(r.camera_id)}</td>
-     <td>${esc(r.location || '—')}</td>
-     <td>${esc([r.vehicle_color, r.vehicle_type].filter(Boolean).join(' ') || '—')}</td>
-     <td class="muted">${esc(r.direction || '—')}</td>
-     <td class="mono">${r.plate ? esc(r.plate) : '<span class="muted">not readable</span>'}</td></tr>`).join('')
-    : '<tr><td colspan="6" class="empty">No detections yet</td></tr>';
-}
-
-async function loadCameras() { cameras = await api('/cameras'); }
-
-function renderCameras() {
-  const q = (document.getElementById('camQ')?.value || '').toLowerCase();
-  const st = document.getElementById('camStatus')?.value || '';
-  const aiOnly = document.getElementById('camAi')?.checked;
-  const list = cameras.filter(c =>
-    (!q || (c.camera_id + c.name + c.location_name).toLowerCase().includes(q)) &&
-    (!st || c.status === st) && (!aiOnly || c.ai_enabled));
-
-  document.getElementById('camBody').innerHTML = list.length ? list.map(c => {
-    const pos = c.latitude == null ? '<span class="tag">unplaced</span>'
-      : `<span class="tag ${c.location_accuracy === 'APPROXIMATE' ? 'approx' : 'ok'}">${esc(c.location_accuracy)}</span>`;
-    const stt = c.status === 'ONLINE' ? 'ok' : (c.status === 'DEGRADED' ? 'warn' : 'crit');
-    return `<tr>
-      <td><img class="thumb" loading="lazy" src="/api/cameras/${esc(c.camera_id)}/thumbnail" onerror="this.style.visibility='hidden'"></td>
-      <td class="mono">${esc(c.camera_id)}${c.ai_enabled ? ' <span class="tag ok">AI</span>' : ''}</td>
-      <td>${esc(c.location_name || c.name || '—')}</td>
-      <td><span class="tag ${stt}">${esc(c.status)}</span></td>
-      <td class="mono">${esc(c.codec || '—')}</td>
-      <td class="mono">${c.width ? c.width + '×' + c.height : '—'}</td>
-      <td title="${esc(c.triage_note)}">${c.plate_score}</td>
-      <td>${c.time_cluster ?? '—'}</td>
-      <td>${pos}</td></tr>`;
-  }).join('') : '<tr><td colspan="9" class="empty">No cameras match</td></tr>';
-}
-
-function fillLiveCameras() {
-  const sel = document.getElementById('liveCam');
-  if (sel.options.length) return;
-  // Best-scoring cameras first: those are the ones worth watching.
-  const usable = cameras.filter(c => c.status !== 'OFFLINE')
-                        .sort((a, b) => b.plate_score - a.plate_score);
-  sel.innerHTML = usable.map(c =>
-    `<option value="${esc(c.camera_id)}">${esc(c.camera_id)} — ${esc(c.location_name || c.name)}`
-    + ` (${esc(c.codec || '?')}, ${c.width || '?'}×${c.height || '?'}, triage ${c.plate_score})</option>`
-  ).join('');
-}
-
-function startLive() {
-  const cam = document.getElementById('liveCam').value;
-  if (!cam) return;
-  const detect = document.getElementById('liveDetect').checked;
-  const img = document.getElementById('liveImg');
-  const state = document.getElementById('liveState');
-
-  state.textContent = 'connecting — this can take 10–90s…';
-  // MJPEG in a plain <img>. The token goes in the query string because an
-  // <img> tag cannot send an Authorization header.
-  img.src = `/api/cameras/${encodeURIComponent(cam)}/live`
-          + `?detect=${detect}&token=${encodeURIComponent(TOKEN)}&t=${Date.now()}`;
-  img.onload = () => { state.textContent = 'streaming ' + cam; };
-  img.onerror = () => { state.textContent = 'stream failed — try another camera'; };
-}
-
-function stopLive() {
-  const img = document.getElementById('liveImg');
-  if (!img || !img.src) return;
-  img.src = '';                       // closes the HTTP connection, freeing the slot
-  const state = document.getElementById('liveState');
-  if (state) state.textContent = '';
-}
-
-window.addEventListener('beforeunload', stopLive);
-
-function initMap() {
-  if (map) { map.invalidateSize(); return; }
-  map = L.map('map').setView([23.03, 72.58], 12);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-    {attribution:'© OpenStreetMap', maxZoom:19}).addTo(map);
-  markers = L.layerGroup().addTo(map);
-  routeLayer = L.layerGroup().addTo(map);
-  api('/cameras/geo/features').then(fc => {
-    fc.features.forEach(f => {
-      const p = f.properties, [lon, lat] = f.geometry.coordinates;
-      const colour = p.status === 'ONLINE' ? '#3ddc97' : '#f5a524';
-      L.circleMarker([lat, lon], {radius:7, color:colour, fillColor:colour, fillOpacity:.55, weight:2})
-        .bindPopup(`<b>${esc(p.camera_id)}</b><br>${esc(p.location)}<br>
-          <span style="font-size:11px">${esc(p.status)} · triage ${p.plate_score}
-          · position ${esc(p.accuracy)}</span>`)
-        .addTo(markers);
-    });
-    if (fc.features.length) {
-      map.fitBounds(fc.features.map(f => [f.geometry.coordinates[1], f.geometry.coordinates[0]]), {padding:[40,40]});
-    }
-  });
-}
-
-async function doSearch() {
-  const q = document.getElementById('q').value.trim();
-  if (!q) return;
-  const t = await api('/search?q=' + encodeURIComponent(q));
-  lastTrace = t;
-  const out = document.getElementById('searchOut');
-
-  if (!t.points.length) {
-    out.innerHTML = `<div class="panel"><div class="empty">No sightings for
-      <span class="mono">${esc(t.query)}</span>.<br><br>
-      ${t.notes.map(n => esc(n)).join('<br>')}</div></div>`;
-    return;
-  }
-
-  const notes = t.notes.map(n => `<div class="banner warn">${esc(n)}</div>`).join('');
-  const segs = t.route_segments.map((seg, i) => `
-    <div class="panel"><h2>Journey segment ${i+1} — ${seg.length} sighting(s)</h2>
-      <ul class="timeline">${seg.map(p => `
-        <li><b class="mono">${fmt(p.timestamp)}</b> — ${esc(p.location || p.camera_id)}
-          <span class="tag">${esc(p.camera_id)}</span><br>
-          <span class="muted">${esc([p.vehicle_color,p.vehicle_type].filter(Boolean).join(' '))}
-          ${p.direction ? '· ' + esc(p.direction) : ''}
-          ${p.plate ? '· plate ' + esc(p.plate) : ''}</span>
-          ${p.evidence ? `<br><img class="thumb" style="margin-top:6px" src="/api/${esc(p.evidence)}">` : ''}
-        </li>`).join('')}</ul></div>`).join('');
-
-  out.innerHTML = `${notes}
-    <div class="grid cards">
-      <div class="card"><div class="k">Sightings</div><div class="v">${t.sighting_count}</div></div>
-      <div class="card"><div class="k">Cameras</div><div class="v">${t.camera_count}</div></div>
-      <div class="card"><div class="k">First seen</div><div class="v" style="font-size:15px">${fmt(t.first_seen)}</div></div>
-      <div class="card"><div class="k">Last seen</div><div class="v" style="font-size:15px">${fmt(t.last_seen)}</div></div>
-    </div>${segs}`;
-
-  show('map', document.querySelectorAll('nav button')[1]);
-  setTimeout(() => drawRoute(t), 120);
-}
-
-function drawRoute(t) {
-  if (!map || !routeLayer) return;
-  routeLayer.clearLayers();
-  t.route_segments.forEach(seg => {
-    const pts = seg.filter(p => p.latitude != null).map(p => [p.latitude, p.longitude]);
-    if (pts.length > 1) L.polyline(pts, {color:'#3da9fc', weight:3, opacity:.85, dashArray:'6 5'}).addTo(routeLayer);
-    seg.forEach((p, i) => {
-      if (p.latitude == null) return;
-      L.marker([p.latitude, p.longitude]).bindPopup(
-        `<b>${esc(p.plate || 'unidentified vehicle')}</b><br>${esc(p.camera_id)} — ${esc(p.location)}<br>
-         <span style="font-size:11px">${fmt(p.timestamp)}</span>`).addTo(routeLayer);
-    });
-    if (pts.length) map.fitBounds(pts, {padding:[60,60]});
-  });
-}
-
-async function loadAlerts() {
-  const s = document.getElementById('aStatus').value, v = document.getElementById('aSev').value;
-  const rows = await api(`/alerts?limit=100${s?'&status='+s:''}${v?'&severity='+v:''}`);
-  document.getElementById('alertBody').innerHTML = rows.length ? rows.map(a => `
-    <tr><td><span class="tag ${sevClass(a.severity)}">${esc(a.severity)}</span></td>
-      <td class="mono">${esc(a.plate || '—')}</td><td class="mono">${esc(a.camera_id)}</td>
-      <td>${esc(a.location || '—')}</td><td class="mono">${fmt(a.event_ts || a.created_at)}</td>
-      <td>${esc(a.category)}</td><td><span class="tag">${esc(a.status)}</span></td>
-      <td>${a.evidence ? `<img class="thumb" src="/api/${esc(a.evidence)}">` : '—'}</td>
-      <td>${a.status === 'NEW'
-        ? `<button class="ghost" onclick="ackAlert(${a.id})">Acknowledge</button>`
-        : `<button class="ghost" onclick="resolveAlert(${a.id})">Resolve</button>`}</td></tr>`).join('')
-    : '<tr><td colspan="9" class="empty">No alerts</td></tr>';
-}
-
-const ackAlert = id => api('/alerts/'+id+'/acknowledge', {method:'POST'}).then(loadAlerts);
-const resolveAlert = id => api('/alerts/'+id+'/resolve', {method:'POST'}).then(loadAlerts);
-
-async function loadWatchlist() {
-  const rows = await api('/watchlist');
-  document.getElementById('wCount').textContent = rows.filter(r => r.active).length;
-  document.getElementById('watchBody').innerHTML = rows.length ? rows.map(w => `
-    <tr><td class="mono">${esc(w.plate)}</td><td>${esc(w.category)}</td>
-      <td><span class="tag ${sevClass(w.severity)}">${esc(w.severity)}</span></td>
-      <td class="muted">${esc(w.notes || '—')}</td>
-      <td><button class="ghost" onclick="delWatch(${w.id})">Remove</button></td></tr>`).join('')
-    : '<tr><td colspan="5" class="empty">Watchlist empty</td></tr>';
-}
-
-async function addWatch() {
-  const plate = document.getElementById('wPlate').value.trim();
-  if (!plate) return;
-  await api('/watchlist', {method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({plate, category: document.getElementById('wCat').value,
-                          severity: document.getElementById('wSev').value})});
-  document.getElementById('wPlate').value = '';
-  loadWatchlist();
-}
-
-const delWatch = id => api('/watchlist/'+id, {method:'DELETE'}).then(loadWatchlist);
-
-async function startIngest() { await api('/ingest/start?ai=true', {method:'POST'}); setTimeout(loadStats, 1500); }
-async function stopIngest()  { await api('/ingest/stop', {method:'POST'}); setTimeout(loadStats, 1500); }
-
-async function loadByCamera() {
-  const t = await api('/stats/timeline');
-  const max = Math.max(1, ...t.by_camera.map(r => r.count));
-  document.getElementById('byCamera').innerHTML = t.by_camera.length ? t.by_camera.map(r => `
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:7px">
-      <span class="mono" style="width:80px">${esc(r.camera_id)}</span>
-      <div style="flex:1;background:var(--panel2);border-radius:4px;height:18px">
-        <div style="width:${(r.count/max*100).toFixed(1)}%;background:var(--accent);height:100%;border-radius:4px"></div>
-      </div><span class="muted" style="width:52px;text-align:right">${r.count}</span>
-    </div>`).join('') : '<div class="empty">No data yet</div>';
-}
-
-function dlCsv(platesOnly) {
-  fetch('/api/reports/detections.csv' + (platesOnly ? '?with_plate_only=true' : ''), {headers:H()})
-    .then(r => r.blob()).then(b => {
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(b);
-      a.download = 'sentinel_detections.csv'; a.click();
-    });
-}
-
-function dlTrace() {
-  if (!lastTrace || !lastTrace.points.length) return alert('Run a search first.');
-  fetch('/api/reports/trace.pdf?plate=' + encodeURIComponent(lastTrace.query), {headers:H()})
-    .then(r => r.blob()).then(b => {
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(b);
-      a.download = 'trace_' + lastTrace.query + '.pdf'; a.click();
-    });
-}
-
-function connectWs() {
-  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  const ws = new WebSocket(`${proto}://${location.host}/api/ws/alerts`);
-  const pill = document.getElementById('wsPill');
-  ws.onopen = () => { pill.textContent = 'live'; pill.className = 'pill live'; };
-  ws.onclose = () => { pill.textContent = 'reconnecting…'; pill.className = 'pill'; setTimeout(connectWs, 4000); };
-  ws.onmessage = ev => {
-    const d = JSON.parse(ev.data);
-    if (d.type !== 'alert') return;
-    loadStats(); loadAlerts();
-    pill.textContent = 'ALERT ' + (d.plate || '');
-    pill.className = 'pill'; pill.style.color = 'var(--crit)';
-  };
-}
-
-async function boot() {
-  document.getElementById('login').style.display = 'none';
-  document.getElementById('app').style.display = 'block';
-  const h = await (await fetch('/health')).json();
-  document.getElementById('profilePill').textContent = 'profile: ' + h.profile;
-  await loadCameras();
-  await Promise.all([loadStats(), loadRecent(), loadWatchlist()]);
-  renderCameras();
-  connectWs();
-  setInterval(() => { loadStats(); loadRecent(); }, 10000);
-}
-
-if (TOKEN) {
-  fetch('/api/auth/me', {headers:H()})
-    .then(r => r.ok ? boot() : logout())
-    .catch(logout);
-}
-</script>
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script type="module" src="/static/js/app.js"></script>
 </body>
 </html>
